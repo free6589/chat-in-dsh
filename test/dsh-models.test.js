@@ -7,7 +7,7 @@ import {
   modelCatalog,
 } from '../src/models.js'
 import { listDshModels } from '../src/dsh-models.js'
-import { toGenerateInput } from '../src/dsh-dispatch.js'
+import { proxyDshDispatch, toGenerateInput } from '../src/dsh-dispatch.js'
 
 const dshGroups = [
   {
@@ -39,6 +39,30 @@ test('mergeDshCatalog：DSH 全量在前，插件项追加兜底', () => {
   )
   assert.equal(merged.entries[0].api, 'dsh')
   assert.equal(merged.entries.at(-1).api, 'anthropic')
+})
+
+test('mergeDshCatalog：DSH 条目携带 provider 分组字段，插件项不带', () => {
+  const plugin = modelCatalog({ models: [{ id: 'deepseek-flash' }] })
+  const merged = mergeDshCatalog(plugin, dshGroups)
+  for (const entry of merged.entries.slice(0, 3)) {
+    assert.equal(entry.provider, entry.id.split('/')[0])
+    assert.equal(entry.providerName, { agent2api: 'Agent2API', bifrost: 'Bifrost' }[entry.provider])
+  }
+  const tail = merged.entries.at(-1)
+  assert.equal(tail.provider, undefined)
+  assert.equal(tail.providerName, undefined)
+  // 默认单项（没配 models）同样不带 provider 字段。
+  const fallback = mergeDshCatalog(modelCatalog({}), dshGroups)
+  assert.equal(fallback.entries.at(-1).provider, undefined)
+})
+
+test('registry.list：DSH 条目暴露 provider/providerName，插件项与默认单项保持原状', () => {
+  const withDsh = createModelRegistry({ models: [{ id: 'deepseek-flash' }] }, '/tmp/no-such-home', dshGroups)
+  const listed = withDsh.list()
+  assert.deepEqual(listed[0], { id: 'agent2api/glm-5.3-flash', label: 'GLM 5.3 Flash', api: 'dsh', default: false, provider: 'agent2api', providerName: 'Agent2API' })
+  assert.deepEqual(listed.at(-1), { id: 'deepseek-flash', label: 'deepseek-flash', api: 'anthropic', default: true })
+  const plain = createModelRegistry({ models: [{ id: 'a' }] }, '/tmp/no-such-home')
+  assert.deepEqual(plain.list(), [{ id: 'a', label: 'a', api: 'anthropic', default: true }])
 })
 
 test('mergeDshCatalog：插件项与 DSH 项 id 冲突时 DSH 优先', () => {
@@ -149,4 +173,106 @@ test('toGenerateInput：system 数组压平，图片块丢掉', () => {
     messages: [{ role: 'user', content: 'hi' }],
   })
   assert.equal(input.system, 'A\nB')
+})
+
+/** 记录 prepareCall/stream 收到的参数，并用假的响应对象收 SSE 帧。 */
+function fakeDispatch(record) {
+  const res = {
+    status: 0,
+    headers: undefined,
+    headersSent: false,
+    writableEnded: false,
+    frames: [],
+    writeHead(status, headers) {
+      this.status = status
+      this.headers = headers
+      this.headersSent = true
+    },
+    write(chunk) {
+      this.frames.push(String(chunk))
+    },
+    end() {
+      this.writableEnded = true
+    },
+    destroy() {},
+    on() {},
+  }
+  const ctx = {
+    llm: {
+      async prepareCall(config, signal) {
+        record.config = config
+        record.signal = signal
+        return {
+          config,
+          stream(options) {
+            record.streamOptions = options
+            return (async function* () {
+              yield { type: 'text-delta', text: '收到' }
+              yield { type: 'finish' }
+            })()
+          },
+        }
+      },
+    },
+  }
+  return { ctx, res }
+}
+
+test('proxyDshDispatch：请求里的 effort 透传到 prepareCall 与 stream', async () => {
+  const record = {}
+  const { ctx, res } = fakeDispatch(record)
+  await proxyDshDispatch(ctx, Buffer.from(JSON.stringify({
+    messages: [{ role: 'user', content: 'hi' }],
+    effort: 'high',
+  })), res, { provider: 'agent2api', model: 'glm-5.3-flash' })
+  assert.equal(record.config.provider, 'agent2api')
+  assert.equal(record.config.model, 'glm-5.3-flash')
+  assert.equal(record.config.reasoningEffort, 'high')
+  assert.equal(record.streamOptions.reasoningEffort, 'high')
+  assert.match(res.frames.join(''), /event: message_stop/u)
+})
+
+test('proxyDshDispatch：thinking.effort 的未知取值原样透传', async () => {
+  const record = {}
+  const { ctx, res } = fakeDispatch(record)
+  await proxyDshDispatch(ctx, Buffer.from(JSON.stringify({
+    messages: [{ role: 'user', content: 'hi' }],
+    thinking: { type: 'enabled', effort: 'ultra-thinking' },
+  })), res, { provider: 'agent2api', model: 'glm-5.3-flash' })
+  assert.equal(record.config.reasoningEffort, 'ultra-thinking')
+  assert.equal(record.streamOptions.reasoningEffort, 'ultra-thinking')
+})
+
+test('proxyDshDispatch：请求里的 effort 覆盖目录默认值', async () => {
+  const record = {}
+  const { ctx, res } = fakeDispatch(record)
+  await proxyDshDispatch(ctx, Buffer.from(JSON.stringify({
+    messages: [{ role: 'user', content: 'hi' }],
+    thinking: { type: 'enabled', effort: 'minimal' },
+  })), res, { provider: 'agent2api', model: 'glm-5.3-flash', reasoningEffort: 'low' })
+  assert.equal(record.config.reasoningEffort, 'minimal')
+})
+
+test('proxyDshDispatch：没有 effort 选择时请求形状与 v1.4.0 一致', async () => {
+  const record = {}
+  const { ctx, res } = fakeDispatch(record)
+  await proxyDshDispatch(ctx, Buffer.from(JSON.stringify({
+    messages: [{ role: 'user', content: 'hi' }],
+    max_tokens: 32,
+    thinking: { type: 'enabled' },
+  })), res, { provider: 'agent2api', model: 'glm-5.3-flash' })
+  assert.deepEqual(Object.keys(record.config).sort(), ['maxTokens', 'messages', 'model', 'provider'])
+  assert.equal('reasoningEffort' in record.streamOptions, false)
+  assert.equal(record.streamOptions.signal instanceof AbortSignal, true)
+  assert.match(res.frames.join(''), /event: message_stop/u)
+})
+
+test('proxyDshDispatch：只有目录默认值时不带请求级覆盖，仍带 reasoningEffort', async () => {
+  const record = {}
+  const { ctx, res } = fakeDispatch(record)
+  await proxyDshDispatch(ctx, Buffer.from(JSON.stringify({
+    messages: [{ role: 'user', content: 'hi' }],
+  })), res, { provider: 'agent2api', model: 'glm-5.3-flash', reasoningEffort: 'low' })
+  assert.equal(record.config.reasoningEffort, 'low')
+  assert.equal(record.streamOptions.reasoningEffort, 'low')
 })

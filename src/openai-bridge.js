@@ -42,6 +42,23 @@ function systemToOpenAI(system) {
 }
 
 /**
+ * Anthropic 请求里的 effort 选择。
+ *
+ * 网页版协议本身没有 effort 字段，面板在 thinking 开关旁边加的选择放在
+ * 顶层 `effort`，也接受 `thinking.effort`（跟着 reasoning 配置走）。
+ * 这里只做读取和去空白：取值集合由上游模型目录决定，未知值原样透传，
+ * 不校验、不做同义词映射。没有选择时返回 undefined。
+ */
+export function effortOf(body) {
+  for (const raw of [body?.effort, body?.thinking?.effort]) {
+    if (typeof raw !== 'string') continue
+    const value = raw.trim()
+    if (value !== '') return value
+  }
+  return undefined
+}
+
+/**
  * Anthropic 请求体 → OpenAI chat.completions 请求体。
  * @param {object} body 浏览器发来的 Anthropic 请求
  * @param {{ id: string, upstreamModel?: string }} entry 目录项
@@ -67,6 +84,9 @@ export function toOpenAIRequest(body, entry) {
   if (typeof body?.top_p === 'number') payload.top_p = body.top_p
   if (typeof body?.stop_sequences === 'string') payload.stop = body.stop_sequences
   else if (Array.isArray(body?.stop_sequences) && body.stop_sequences.length > 0) payload.stop = body.stop_sequences
+  // 选了 effort 才带上：没选就与 v1.4.0 的请求体逐字节一致。
+  const effort = effortOf(body)
+  if (effort !== undefined) payload.reasoning_effort = effort
   return payload
 }
 

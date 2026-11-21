@@ -1,0 +1,110 @@
+{
+  "startedAt": "2026-11-21T15:04:47.038Z",
+  "profile": {
+    "home": "/home/fish",
+    "credential": "BIFROST_VIRTUAL_KEY",
+    "credentialSource": "process.env"
+  },
+  "upstream": {
+    "baseURL": "http://127.0.0.1:18088/openai/v1",
+    "model": "agent2api/glm-5.3-flash",
+    "model2": "runanywhere/glm-5.3-flash",
+    "note": "插件上游指向进程内记录型代理，代理原样转发到 baseURL"
+  },
+  "steps": [
+    {
+      "name": "默认目录未配置 models 时仍是官方单项",
+      "ok": true,
+      "detail": "[{\"id\":\"deepseek-flash\",\"object\":\"model\",\"label\":\"DeepSeek 网页版\",\"api\":\"anthropic\",\"default\":true}]"
+    },
+    {
+      "name": "可选模型列表",
+      "ok": true,
+      "detail": "deepseek-flash/anthropic, agent2api/glm-5.3-flash/openai, runanywhere/glm-5.3-flash/openai"
+    },
+    {
+      "name": "切换到非官方模型",
+      "ok": true,
+      "detail": "{\"ok\":true,\"active\":\"agent2api/glm-5.3-flash\"}"
+    },
+    {
+      "name": "上游路由确认（非 DeepSeek 官方）",
+      "ok": true,
+      "detail": "provider=agent2api model=glm-5.3-flash",
+      "extra": {
+        "provider": "agent2api",
+        "model": "glm-5.3-flash",
+        "key": "agent2apimain",
+        "requested_provider": "agent2api",
+        "requested_model": "glm-5.3-flash"
+      }
+    },
+    {
+      "name": "选择已落盘",
+      "ok": true,
+      "detail": "state=agent2api/glm-5.3-flash"
+    },
+    {
+      "name": "真实对话 HTTP 200",
+      "ok": true,
+      "detail": "status=200 12065ms"
+    },
+    {
+      "name": "Anthropic 事件序列完整",
+      "ok": true,
+      "detail": "message_start → content_block_start → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_stop → content_block_start → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_stop → message_delta → message_stop"
+    },
+    {
+      "name": "收到真实模型回答",
+      "ok": true,
+      "detail": "\"我是由 Z.ai 训练的 GLM 大语言模型。\" (thinking 205 chars)"
+    },
+    {
+      "name": "自检三项",
+      "ok": true,
+      "detail": "index:ok, static:ok, model:ok, messages:ok"
+    },
+    {
+      "name": "设置页可见可选模型",
+      "ok": true,
+      "detail": "2570 bytes"
+    },
+    {
+      "name": "选 effort：接口回读与状态文件一致",
+      "ok": true,
+      "detail": "POST→{\"ok\":true,\"active\":\"agent2api/glm-5.3-flash\",\"activeEffort\":\"high\"} 文件→{\"model\":\"agent2api/glm-5.3-flash\",\"effort\":\"high\"}"
+    },
+    {
+      "name": "带 effort 的真上游对话 200",
+      "ok": true,
+      "detail": "status=200 10245ms \"我是由 xAI 训练的大语言模型 Grok。\""
+    },
+    {
+      "name": "真上游请求体带 reasoning_effort（effort 生效）",
+      "ok": true,
+      "detail": "model=agent2api/glm-5.3-flash reasoning_effort=\"high\""
+    },
+    {
+      "name": "不选 effort 时不落盘、请求体也没有 reasoning_effort",
+      "ok": true,
+      "detail": "POST→{\"ok\":true,\"active\":\"agent2api/glm-5.3-flash\"} 文件→{\"model\":\"agent2api/glm-5.3-flash\"} 请求体 reasoning_effort=undefined"
+    },
+    {
+      "name": "切到另一组模型后真上游按新 model 作答",
+      "ok": true,
+      "detail": "active=runanywhere/glm-5.3-flash 上游 model=runanywhere/glm-5.3-flash 回答=\"收到\""
+    }
+  ],
+  "answer": {
+    "text": "我是由 Z.ai 训练的 GLM 大语言模型。",
+    "thinkingChars": 205,
+    "elapsedMs": 12065,
+    "events": 23
+  },
+  "effort": {
+    "value": "high",
+    "upstream": "high"
+  },
+  "ok": true,
+  "finishedAt": "2026-11-21T15:05:57.087Z"
+}

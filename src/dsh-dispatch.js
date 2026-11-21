@@ -11,11 +11,12 @@
  *   - user 文本 → RequestUserInput[]（assistant 历史压成带说话人前缀的 user 上下文，
  *     因 RequestUserInput 只有 user role；图片暂不支持，走旧桥/直通路径）
  *   - max_tokens/temperature/top_p/stop_sequences → 同名字段
- *   - thinking 开 → reasoningEffort 取目录默认值（第二步 UI 再让用户选 effort）
+ *   - 网页版选了 effort（顶层 `effort` 或 `thinking.effort`）→ reasoningEffort；
+ *     没选才回退目录默认值（`entry.reasoningEffort`），两者都没有就不带该字段
  * DSH StreamChunk → Anthropic SSE：text-delta → text_delta，
  * reasoning-delta → thinking_delta，其余丢掉；收尾补 message_delta + message_stop。
  */
-import { createAnthropicStream } from './openai-bridge.js'
+import { createAnthropicStream, effortOf } from './openai-bridge.js'
 
 /** Anthropic content → 纯文本（DSH 文本块）。 */
 function textOf(content) {
@@ -125,6 +126,8 @@ export async function proxyDshDispatch(ctx, rawBody, res, { provider, model, rea
     return
   }
   const thinking = body?.thinking?.type !== 'disabled'
+  // 网页版下发的 effort 优先；没下发才用目录默认值。
+  const effort = effortOf(body) ?? reasoningEffort
   const input = toGenerateInput(body)
   const controller = new AbortController()
   res.on('close', () => {
@@ -133,7 +136,7 @@ export async function proxyDshDispatch(ctx, rawBody, res, { provider, model, rea
   const config = {
     provider,
     model,
-    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    ...(effort === undefined ? {} : { reasoningEffort: effort }),
     ...input,
   }
   let prepared
@@ -150,7 +153,12 @@ export async function proxyDshDispatch(ctx, rawBody, res, { provider, model, rea
   }
   try {
     await pipeDshStream(
-      prepared.stream({ ...prepared.config, signal: controller.signal }),
+      // 显式带上 effort：adapter 的 prepared.config 若丢了未知字段，stream 这一跳也还能看到选择。
+      prepared.stream({
+        ...prepared.config,
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
+        signal: controller.signal,
+      }),
       res,
       { model: `${provider}/${model}`, thinking }
     )

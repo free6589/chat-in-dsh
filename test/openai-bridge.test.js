@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createAnthropicStream, toAnthropicMessage, toOpenAIRequest } from '../src/openai-bridge.js'
+import { createAnthropicStream, effortOf, toAnthropicMessage, toOpenAIRequest } from '../src/openai-bridge.js'
 
 const entry = { id: 'glm-5.3-flash', upstreamModel: 'agent2api/glm-5.3-flash', api: 'openai', baseURL: 'http://127.0.0.1:18088/openai/v1' }
 
@@ -126,4 +126,38 @@ test('非流式响应翻译成 Anthropic message', () => {
     { type: 'text', text: '收到' },
   ])
   assert.deepEqual(message.usage, { input_tokens: 3, output_tokens: 5 })
+})
+
+test('effort 透传：顶层 effort 翻成 reasoning_effort', () => {
+  const payload = toOpenAIRequest({
+    messages: [{ role: 'user', content: 'hi' }],
+    effort: ' high ',
+  }, entry)
+  assert.equal(payload.reasoning_effort, 'high')
+})
+
+test('effort 透传：thinking.effort 同样生效，未知取值原样透传', () => {
+  const payload = toOpenAIRequest({
+    messages: [{ role: 'user', content: 'hi' }],
+    thinking: { type: 'enabled', effort: 'max' },
+  }, entry)
+  assert.equal(payload.reasoning_effort, 'max')
+})
+
+test('effort 缺省：请求体里不多出 reasoning_effort 字段（与 v1.4.0 一致）', () => {
+  const payload = toOpenAIRequest({
+    messages: [{ role: 'user', content: 'hi' }],
+    thinking: { type: 'enabled' },
+  }, entry)
+  assert.equal('reasoning_effort' in payload, false)
+  assert.deepEqual(Object.keys(payload).sort(), ['messages', 'model', 'stream'])
+})
+
+test('effort 读取：空串与非字符串按缺省处理', () => {
+  assert.equal(effortOf({}), undefined)
+  assert.equal(effortOf({ effort: '   ' }), undefined)
+  assert.equal(effortOf({ effort: 3 }), undefined)
+  assert.equal(effortOf({ thinking: { effort: '' } }), undefined)
+  assert.equal(effortOf({ effort: 'low', thinking: { effort: 'high' } }), 'low')
+  assert.equal(effortOf({ thinking: { effort: ' high ' } }), 'high')
 })

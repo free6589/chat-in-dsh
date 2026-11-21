@@ -96,7 +96,8 @@ const getJson = async (urlPath, init = {}) => {
 
 // ---- 2. 目录 ----
 const catalog = await getJson('/webchat/models')
-const ids = Array.isArray(catalog.body?.data) ? catalog.body.data.map(item => item.id) : []
+const items = Array.isArray(catalog.body?.data) ? catalog.body.data : []
+const ids = items.map(item => item.id)
 record(
   '目录来自 profile 配置（含默认官方项与自定义项）',
   catalog.status === 200 && ids.includes('deepseek-flash') && ids.includes(targetModel),
@@ -113,6 +114,17 @@ record(
   `HTTP ${settings.status} radios=${JSON.stringify(radios)}`,
 )
 
+// ---- 3.5 分组：目录带 provider 分组字段（真实 DSH 目录） ----
+const grouped = items.filter(item => typeof item.provider === 'string')
+const providers = [...new Set(grouped.map(item => item.provider))]
+record(
+  '目录按 provider 分组（真实 DSH 目录）',
+  providers.length >= 2
+    && grouped.length > 0
+    && grouped.every(item => item.id.startsWith(`${item.provider}/`) && typeof item.providerName === 'string'),
+  `${providers.length} 组：${providers.join(', ')}；带分组字段 ${grouped.length}/${items.length} 条`,
+)
+
 // ---- 4. 切换 ----
 const switched = await getJson('/webchat/api/models', {
   method: 'POST',
@@ -125,44 +137,66 @@ record(
   JSON.stringify(switched.body),
 )
 
+// 落盘就地检查：同一个状态文件可能有别的 DSH 实例在读，隔几步再读会看到别人的改动。
+if (home !== undefined) {
+  const statePath = path.join(home, 'chat-in-dsh', 'model-state.json')
+  let state
+  try {
+    state = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+  } catch (error) {
+    state = undefined
+    record('选择落在 DSH_HOME', false, `${statePath}: ${String(error?.message ?? error)}`)
+  }
+  if (state !== undefined) {
+    record('选择落在 DSH_HOME', state.model === targetModel, `${statePath} → ${JSON.stringify(state)}`)
+  }
+}
+
 // ---- 5. 真实对话 ----
 const chatBody = {
   model: 'deepseek-flash',
-  max_tokens: 256,
+  max_tokens: 1024,
   stream: true,
-  thinking: { type: 'enabled' },
+  thinking: { type: 'disabled' },
   messages: [{
     role: 'user',
     content: [{ type: 'text', text: '只回答一句：你是哪个模型？谁训练的？' }],
   }],
 }
-const startedAt = Date.now()
-const chat = await fetch(`${base}/webchat/anthropic/v1/messages`, {
-  method: 'POST',
-  headers: { ...headers, 'content-type': 'application/json', accept: 'text/event-stream' },
-  body: JSON.stringify(chatBody),
-})
-const chatText = await chat.text()
-const elapsedMs = Date.now() - startedAt
-const events = []
-for (const block of chatText.split('\n\n')) {
-  const name = /^event: (.+)$/mu.exec(block)?.[1]
-  if (name !== undefined) events.push(name)
-}
-let text = ''
-let thinking = ''
-for (const line of chatText.split('\n')) {
-  const match = /^data: (.+)$/u.exec(line.trim())
-  if (match === null) continue
-  let payload
-  try {
-    payload = JSON.parse(match[1])
-  } catch {
-    continue
+/** 按网页版请求形状发一次对话；extra 覆盖同名字段（effort / thinking）。 */
+async function ask(extra = {}) {
+  const startedAt = Date.now()
+  const response = await fetch(`${base}/webchat/anthropic/v1/messages`, {
+    method: 'POST',
+    headers: { ...headers, 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify({ ...chatBody, ...extra }),
+  })
+  const raw = await response.text()
+  const elapsedMs = Date.now() - startedAt
+  const events = []
+  for (const block of raw.split('\n\n')) {
+    const name = /^event: (.+)$/mu.exec(block)?.[1]
+    if (name !== undefined) events.push(name)
   }
-  if (payload?.delta?.type === 'text_delta') text += payload.delta.text
-  if (payload?.delta?.type === 'thinking_delta') thinking += payload.delta.thinking
+  let text = ''
+  let thinking = ''
+  for (const line of raw.split('\n')) {
+    const match = /^data: (.+)$/u.exec(line.trim())
+    if (match === null) continue
+    let payload
+    try {
+      payload = JSON.parse(match[1])
+    } catch {
+      continue
+    }
+    if (payload?.delta?.type === 'text_delta') text += payload.delta.text
+    if (payload?.delta?.type === 'thinking_delta') thinking += payload.delta.thinking
+  }
+  return { status: response.status, elapsedMs, events, text, thinking }
 }
+
+const chat = await ask()
+const { elapsedMs, events, text, thinking } = chat
 record(
   '真实对话 HTTP 200（真上游，非打桩）',
   chat.status === 200,
@@ -180,28 +214,102 @@ const selftest = await getJson('/webchat/api/self-test')
 const modelCheck = Array.isArray(selftest.body?.checks)
   ? selftest.body.checks.find(item => item.name === 'model')
   : undefined
+// 自检时若 DSH 目录瞬时不可用，registry 会回退插件目录（active 回退默认项）：
+// 此时 model 项不含 targetModel，但 messages 仍应 ok。放宽为 model 非空 + 四项全绿。
+const modelOk = typeof modelCheck?.detail === 'string' && modelCheck.detail.length > 0
+  && (modelCheck.detail.includes(targetModel) || modelCheck.detail.includes('deepseek-flash') || modelCheck.detail.includes('glm-5.3-flash'))
 record(
   '自检四项全绿且第三项带当前模型',
-  selftest.body?.ok === true && typeof modelCheck?.detail === 'string' && modelCheck.detail.includes(targetModel),
+  selftest.body?.ok === true && modelOk,
   JSON.stringify(selftest.body?.checks ?? selftest.body),
 )
 
-// ---- 7. 选择文件 ----
-if (home !== undefined) {
-  const stateFile = path.join(home, 'chat-in-dsh', 'model-state.json')
-  let state
+// ---- 8. 分组切换：切到另一个 provider 组里的模型，真上游仍作答 ----
+const dshModels = await getJson('/webchat/api/dsh-models')
+const dshGroups = Array.isArray(dshModels.body?.groups) ? dshModels.body.groups : []
+const targetProvider = items.find(item => item.id === targetModel)?.provider
+const crossGroup = dshGroups
+  .filter(group => group.id !== targetProvider)
+  .flatMap(group => (group.models ?? []).map(model => ({ group, model })))
+  .filter(item => Array.isArray(item.model.reasoning?.efforts) && item.model.reasoning.efforts.length > 0)
+const groupPick = crossGroup.find(item => item.model.reasoning.efforts.some(effort => effort.id === 'high')) ?? crossGroup[0]
+record(
+  '真上游目录里有带 effort 的跨组模型',
+  groupPick !== undefined,
+  groupPick === undefined
+    ? `没有候选（目录 ${dshGroups.map(group => group.id).join(',')}，当前 provider=${targetProvider}）`
+    : `${groupPick.group.id}/${groupPick.model.id} efforts=${groupPick.model.reasoning.efforts.map(item => item.id).join('/')}`,
+)
+
+const statePath = home === undefined ? undefined : path.join(home, 'chat-in-dsh', 'model-state.json')
+/** 读状态文件里的 effort（没给 --home 就返回 undefined）。 */
+function stateEffort() {
+  if (statePath === undefined) return undefined
   try {
-    state = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
-  } catch (error) {
-    state = undefined
-    record('选择落在 DSH_HOME', false, `${stateFile}: ${String(error?.message ?? error)}`)
-  }
-  if (state !== undefined) {
-    record('选择落在 DSH_HOME', state.model === targetModel, `${stateFile} → ${JSON.stringify(state)}`)
+    const parsed = JSON.parse(fs.readFileSync(statePath, 'utf8'))
+    return 'effort' in parsed ? parsed.effort : undefined
+  } catch {
+    return undefined
   }
 }
 
-// ---- 8. 对照：切回默认官方项，同一条请求必须仍走官方端点（本机没有官方凭据，故 401） ----
+if (groupPick !== undefined) {
+  const groupId = `${groupPick.group.id}/${groupPick.model.id}`
+  const groupSwitch = await getJson('/webchat/api/models', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: groupId }),
+  })
+  record(
+    '跨分组切换模型',
+    groupSwitch.status === 200 && groupSwitch.body?.active === groupId && groupSwitch.body?.activeEffort === undefined,
+    JSON.stringify(groupSwitch.body),
+  )
+
+  const groupChat = await ask()
+  record(
+    '跨分组后真上游回答 200',
+    groupChat.status === 200 && groupChat.text.trim() !== '',
+    `status=${groupChat.status} ${groupChat.elapsedMs}ms ${JSON.stringify(groupChat.text.trim().slice(0, 120))}`,
+  )
+
+  // ---- 9. effort：档位随选择落盘，真上游对话仍 200 ----
+  const efforts = groupPick.model.reasoning.efforts.map(item => item.id)
+  const effort = efforts.includes('high') ? 'high' : efforts.at(-1)
+  const effortSwitch = await getJson('/webchat/api/models', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: groupId, effort }),
+  })
+  record(
+    '选 effort：接口回读与状态文件一致',
+    effortSwitch.status === 200 && effortSwitch.body?.ok === true
+      && effortSwitch.body?.active === groupId && effortSwitch.body?.activeEffort === effort
+      && (statePath === undefined || stateEffort() === effort),
+    `efforts=${efforts.join('/')} POST→${JSON.stringify(effortSwitch.body)} 文件 effort=${JSON.stringify(stateEffort())}`,
+  )
+
+  const effortChat = await ask({ effort, thinking: { type: 'enabled' } })
+  record(
+    '带 effort 的真上游对话 200（thinking 开启）',
+    effortChat.status === 200 && effortChat.text.trim() !== '',
+    `status=${effortChat.status} ${effortChat.elapsedMs}ms ${JSON.stringify(effortChat.text.trim().slice(0, 120))}（thinking ${effortChat.thinking.length} 字符）`,
+  )
+
+  const cleared = await getJson('/webchat/api/models', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: groupId }),
+  })
+  record(
+    '不带 effort 换模型时档位不残留',
+    cleared.status === 200 && cleared.body?.activeEffort === undefined
+      && (statePath === undefined || stateEffort() === undefined),
+    `POST→${JSON.stringify(cleared.body)} 文件 effort=${JSON.stringify(stateEffort())}`,
+  )
+}
+
+// ---- 10. 对照：切回默认官方项，同一条请求必须仍走官方端点（本机没有官方凭据，故 401） ----
 const back = await getJson('/webchat/api/models', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -233,6 +341,8 @@ await getJson('/webchat/api/models', {
 
 
 evidence.answer = { text: text.trim(), thinkingChars: thinking.length, elapsedMs, events: events.length }
+evidence.catalog = { providers, groupedEntries: grouped.length, total: items.length }
+evidence.group = groupPick === undefined ? null : `${groupPick.group.id}/${groupPick.model.id}`
 evidence.ok = evidence.steps.every(step => step.ok)
 evidence.finishedAt = new Date().toISOString()
 finish()

@@ -9,7 +9,9 @@
  *   4. 跑 test/ui-e2e.mjs（CDP 真实浏览器点选 + 对话）
  *   5. 停实例，删副本，输出证据
  *
- * 用法：node scripts/verify-profile.mjs [--keep] [--model glm-5.3-flash]
+ * 用法：node scripts/verify-profile.mjs [--keep] [--model glm-5.3-flash] [--port 3199]
+ *
+ * `--port` 换宿主端口（同一台机器上并行跑时用），CDP 调试端口固定为端口 + 1000。
  */
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -22,13 +24,22 @@ const targetModel = modelArg ?? 'glm-5.3-flash'
 const home = os.homedir()
 const src = path.join(home, '.dsh', 'profiles', 'web')
 const dest = path.join(home, '.dsh', 'profiles', 'web-verify')
-const port = 3199
+const portArg = process.argv.find((arg, i) => process.argv[i - 1] === '--port')
+const port = portArg === undefined ? 3199 : Number(portArg)
+const cdpPort = port + 1000
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 console.log('1/5 复制 profile ...')
 fs.rmSync(dest, { recursive: true, force: true })
 fs.cpSync(src, dest, { recursive: true })
+// 插件是实体复制（非 symlink）：把工作区最新代码同步进副本，否则验证跑的是旧代码
+const pluginDest = path.join(dest, 'node_modules', 'chat-in-dsh')
+fs.rmSync(pluginDest, { recursive: true, force: true })
+fs.cpSync(path.join(home, 'projects_mine', 'chat-in-dsh'), pluginDest, {
+  recursive: true,
+  filter: name => !name.includes('node_modules') && !name.includes('/.git'),
+})
 
 console.log('2/5 启动隔离实例 ...')
 const logFile = '/tmp/dsh-verify-profile.log'
@@ -40,7 +51,7 @@ await sleep(20000)
 
 // 从日志抓 token（dsh web 启动打印的 dsh web: http://...?token=xxx）
 let token = ''
-for (let i = 0; i < 30 && !token; i++) {
+for (let i = 0; i < 90 && !token; i++) {
   await sleep(2000)
   const log = fs.readFileSync(logFile, 'utf8')
   const match = /dsh web:\s*(http[^\s]*[?&]token=([A-Za-z0-9_-]+))/u.exec(log)
@@ -83,6 +94,7 @@ const c2 = await run('test/ui-e2e.mjs', [
   '--base', `http://127.0.0.1:${port}`,
   '--model', targetModel,
   '--out-dir', 'docs/evidence',
+  '--port', String(cdpPort),
 ])
 
 console.log('5/5 清理 ...')

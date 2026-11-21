@@ -5,9 +5,12 @@ import path from 'node:path'
 import { test } from 'node:test'
 import {
   DEFAULT_MODEL_ID,
+  activeEffortOf,
   activeModelId,
   createModelRegistry,
+  filterModels,
   findModelEntry,
+  mergeDshCatalog,
   modelCatalog,
   readSelection,
   resolveStateFile,
@@ -84,7 +87,9 @@ test('选择状态文件可写入可读回，且文件权限收在 0600', () => 
   const file = path.join(dir, 'chat-in-dsh', 'model-state.json')
   assert.equal(readSelection(file), undefined)
   writeSelection(file, 'glm-5.3-flash')
-  assert.equal(readSelection(file), 'glm-5.3-flash')
+  assert.deepEqual(readSelection(file), { model: 'glm-5.3-flash' })
+  writeSelection(file, 'glm-5.3-flash', 'high')
+  assert.deepEqual(readSelection(file), { model: 'glm-5.3-flash', effort: 'high' })
   if (process.platform !== 'win32') {
     assert.equal(fs.statSync(file).mode & 0o777, 0o600)
   }
@@ -142,4 +147,123 @@ test('注册表把选中项落到配置的目录项上', () => {
   const entry = findModelEntry(models.catalog, 'glm-5.3-flash')
   assert.equal(entry.upstreamModel, 'agent2api/glm-5.3-flash')
   assert.equal(entry.api, 'openai')
+})
+
+// ---- filterModels：模型搜索框的过滤逻辑（匹配 id / label / providerName，大小写不敏感）----
+
+/** 面板下拉里的典型条目：DSH 分组项 + 插件兜底项。 */
+const searchable = [
+  { id: 'agent2api/glm-5.3-flash', label: 'GLM 5.3 Flash', api: 'dsh', provider: 'agent2api', providerName: 'Agent2API' },
+  { id: 'agent2api/qwen3.8-flash', label: 'Qwen3.8 Flash', api: 'dsh', provider: 'agent2api', providerName: 'Agent2API' },
+  { id: 'bifrost-completions/agnes-3.0-flash', label: 'Agnes 3.0 Flash', api: 'dsh', provider: 'bifrost-completions', providerName: 'Bifrost' },
+  { id: 'deepseek-flash', label: 'DeepSeek 网页版', api: 'anthropic' },
+]
+
+test('筛选：空串与纯空白 query 原样返回全部，且返回的是新数组', () => {
+  for (const query of ['', '   ', '\t\n']) {
+    const filtered = filterModels(searchable, query)
+    assert.deepEqual(filtered, searchable)
+    assert.notEqual(filtered, searchable)
+  }
+})
+
+test('筛选：缺省 query 与非法 entries 都不抛错', () => {
+  assert.deepEqual(filterModels(searchable, undefined), searchable)
+  assert.deepEqual(filterModels(searchable, null), searchable)
+  assert.deepEqual(filterModels(undefined, 'glm'), [])
+  assert.deepEqual(filterModels(null, 'glm'), [])
+})
+
+test('筛选：按 id 匹配，大小写不敏感并忽略首尾空白', () => {
+  assert.deepEqual(filterModels(searchable, '  AGENT2API/GLM  ').map(entry => entry.id), ['agent2api/glm-5.3-flash'])
+  assert.deepEqual(filterModels(searchable, 'deepseek-flash').map(entry => entry.id), ['deepseek-flash'])
+})
+
+test('筛选：按 label 匹配（含中文与空格）', () => {
+  assert.deepEqual(filterModels(searchable, '网页版').map(entry => entry.id), ['deepseek-flash'])
+  assert.deepEqual(filterModels(searchable, 'qwen3.8').map(entry => entry.id), ['agent2api/qwen3.8-flash'])
+  assert.deepEqual(filterModels(searchable, 'Agnes 3.0').map(entry => entry.id), ['bifrost-completions/agnes-3.0-flash'])
+})
+
+test('筛选：按 providerName 匹配，一个 provider 下的模型整组命中', () => {
+  assert.deepEqual(filterModels(searchable, 'agent2api').map(entry => entry.id), ['agent2api/glm-5.3-flash', 'agent2api/qwen3.8-flash'])
+  assert.deepEqual(filterModels(searchable, 'bifrost').map(entry => entry.id), ['bifrost-completions/agnes-3.0-flash'])
+})
+
+test('筛选：没有命中的 query 返回空数组，不是全部', () => {
+  assert.deepEqual(filterModels(searchable, 'no-such-model'), [])
+})
+
+test('筛选：不改原数组，也不改条目对象', () => {
+  const before = JSON.stringify(searchable)
+  const filtered = filterModels(searchable, 'agent2api')
+  filtered.pop()
+  assert.equal(JSON.stringify(searchable), before)
+  assert.equal(searchable.length, 4)
+})
+
+test('筛选：合并目录（DSH 分组项 + 插件兜底项）上按 provider 分组搜得准', () => {
+  const merged = mergeDshCatalog(modelCatalog({ models: [{ id: 'deepseek-flash' }] }), [
+    { id: 'agent2api', name: 'Agent2API', models: [{ id: 'glm-5.3-flash', name: 'GLM 5.3 Flash' }, { id: 'mimo-v2.6-pro', name: 'MiMo v2.6 Pro' }] },
+    { id: 'bifrost-completions', name: 'Bifrost', models: [{ id: 'agnes-3.0-flash', name: 'Agnes 3.0 Flash' }] },
+  ])
+  assert.deepEqual(filterModels(merged.entries, 'AGENT2API').map(entry => entry.id), ['agent2api/glm-5.3-flash', 'agent2api/mimo-v2.6-pro'])
+  assert.deepEqual(filterModels(merged.entries, 'glm').map(entry => entry.id), ['agent2api/glm-5.3-flash'])
+  // 插件兜底项没有 providerName，但 id / label 仍参与匹配。
+  assert.deepEqual(filterModels(merged.entries, 'DeepSeek').map(entry => entry.id), ['deepseek-flash'])
+  assert.equal(filterModels(merged.entries, 'Agent2API').every(entry => entry.provider === 'agent2api'), true)
+})
+
+// ---- effort：第二步 UI 的两级菜单把 effort 一起落盘，派发时透传 reasoningEffort ----
+
+test('选择文件：effort 与 model 一起写、一起读；非字符串或无 effort 的老文件按未选', () => {
+  const dir = tempDir()
+  const file = path.join(dir, 'state.json')
+  writeSelection(file, 'glm-5.3-flash', 'max')
+  assert.deepEqual(readSelection(file), { model: 'glm-5.3-flash', effort: 'max' })
+  // 重新只写 model，effort 不能残留。
+  writeSelection(file, 'glm-5.3-flash')
+  assert.deepEqual(readSelection(file), { model: 'glm-5.3-flash' })
+  fs.writeFileSync(file, JSON.stringify({ model: 'glm-5.3-flash', effort: 3 }))
+  assert.deepEqual(readSelection(file), { model: 'glm-5.3-flash' })
+  fs.writeFileSync(file, JSON.stringify({ model: 'glm-5.3-flash', effort: '' }))
+  assert.deepEqual(readSelection(file), { model: 'glm-5.3-flash' })
+})
+
+test('activeEffortOf：只在选中模型仍在目录里时生效，裸 model 字符串没有 effort', () => {
+  const catalog = modelCatalog({ models: [{ id: 'a' }, { id: 'b' }] })
+  assert.equal(activeEffortOf(catalog, { model: 'a', effort: 'high' }), 'high')
+  assert.equal(activeEffortOf(catalog, { model: 'gone', effort: 'high' }), undefined)
+  assert.equal(activeEffortOf(catalog, { model: 'a' }), undefined)
+  assert.equal(activeEffortOf(catalog, 'a'), undefined)
+  assert.equal(activeEffortOf(catalog, undefined), undefined)
+  assert.equal(activeEffortOf(catalog, { model: 'a', effort: 7 }), undefined)
+})
+
+test('注册表：select(id, effort) 落盘，activeEffort() 与 active().reasoningEffort 同步', () => {
+  const dir = tempDir()
+  const config = { models: [{ id: 'a' }, { id: 'b' }], stateFile: path.join(dir, 'state.json') }
+  const models = createModelRegistry(config, dir)
+  assert.equal(models.activeEffort(), undefined)
+  assert.equal('reasoningEffort' in models.active(), true)
+  assert.equal(models.active().reasoningEffort, undefined)
+  assert.equal(models.select('b', 'xhigh'), true)
+  assert.equal(models.activeId(), 'b')
+  assert.equal(models.activeEffort(), 'xhigh')
+  assert.equal(models.active().reasoningEffort, 'xhigh')
+  // 只换模型不带 effort：旧档位不能跟着搬过去。
+  assert.equal(models.select('a'), true)
+  assert.equal(models.activeEffort(), undefined)
+  assert.equal(models.active().reasoningEffort, undefined)
+})
+
+test('注册表：未知模型带 effort 也不落盘，原选择与档位都不动', () => {
+  const dir = tempDir()
+  const config = { models: [{ id: 'a' }], stateFile: path.join(dir, 'state.json') }
+  const models = createModelRegistry(config, dir)
+  assert.equal(models.select('a', 'low'), true)
+  assert.equal(models.select('nope', 'high'), false)
+  assert.equal(models.activeId(), 'a')
+  assert.equal(models.activeEffort(), 'low')
+  assert.deepEqual(readSelection(models.file), { model: 'a', effort: 'low' })
 })

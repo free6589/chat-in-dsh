@@ -10,6 +10,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { rankEntries } from './model-search.js'
 
 /** 官方网页版使用的模型名；前端请求体里写死的就是它。 */
 export const DEFAULT_MODEL_ID = 'deepseek-flash'
@@ -125,6 +126,14 @@ export function mergeDshCatalog(pluginCatalog, dshGroups = []) {
   return { entries, isDefault: false, defaultId }
 }
 
+/** 按 query 过滤目录项：规则见 `model-search.js`（名字优先、provider 兜底、前缀优先排序），
+ * 与设置页搜索框和面板菜单共用一套实现。
+ * 空串或空白 query 原样返回；返回新数组，不改原数组。
+ */
+export function filterModels(entries, query) {
+  return rankEntries(entries, query).map(row => row.entry)
+}
+
 /** 按 id 找目录项。 */
 export function findModelEntry(catalog, id) {
   if (typeof id !== 'string' || id === '') return undefined
@@ -137,28 +146,45 @@ export function resolveStateFile(home, config = {}) {
   return path.join(home, 'chat-in-dsh', 'model-state.json')
 }
 
-/** 读选择；文件缺失或内容损坏时返回 undefined（回退默认模型）。 */
+/** 读选择；文件缺失或内容损坏时返回 undefined（回退默认模型）。
+ * 返回 { model, effort? }：effort 是第二步 UI 两级菜单选的推理档位，
+ * 派发时透传 reasoningEffort。老文件只有 model 时 effort 为 undefined。
+ */
 export function readSelection(file) {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
-    return typeof parsed?.model === 'string' && parsed.model !== '' ? parsed.model : undefined
+    if (typeof parsed?.model !== 'string' || parsed.model === '') return undefined
+    const effort = typeof parsed?.effort === 'string' && parsed.effort !== '' ? parsed.effort : undefined
+    return { model: parsed.model, ...(effort === undefined ? {} : { effort }) }
   } catch {
     return undefined
   }
 }
 
 /** 写选择：先写同目录临时文件再改名，避免写到一半留下坏 JSON。 */
-export function writeSelection(file, id) {
+export function writeSelection(file, id, effort) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const temporary = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(temporary, `${JSON.stringify({ model: id }, null, 2)}\n`, { mode: 0o600 })
+  const payload = { model: id, ...(effort === undefined ? {} : { effort }) }
+  fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 })
   fs.renameSync(temporary, file)
 }
 
-/** 当前生效的模型 id：状态文件 → 配置默认 → 目录第一项。 */
+/** 当前生效的模型 id：状态文件 → 配置默认 → 目录第一项。
+ * selection 是 readSelection 的返回值（{ model, effort? }）或裸 model 字符串（兼容）。
+ */
 export function activeModelId(catalog, selection) {
-  if (findModelEntry(catalog, selection) !== undefined) return selection
+  const id = typeof selection === 'string' ? selection : selection?.model
+  if (typeof id === 'string' && findModelEntry(catalog, id) !== undefined) return id
   return catalog.defaultId
+}
+
+/** 当前生效的 effort：只有状态文件里的模型仍在目录里时才有效，否则 undefined。 */
+export function activeEffortOf(catalog, selection) {
+  const id = typeof selection === 'string' ? undefined : selection?.model
+  const effort = typeof selection === 'string' ? undefined : selection?.effort
+  if (typeof id !== 'string' || typeof effort !== 'string') return undefined
+  return findModelEntry(catalog, id) === undefined ? undefined : effort
 }
 
 /**
@@ -182,18 +208,26 @@ export function createModelRegistry(config, home, dshGroups = []) {
         label: entry.label,
         api: entry.api,
         default: entry.id === merged.defaultId,
+        // provider 分组字段只随 DSH 条目出现；插件项与默认单项保持原样（向后兼容）。
+        ...(entry.provider === undefined ? {} : { provider: entry.provider, providerName: entry.providerName }),
       }))
     },
     activeId() {
       return activeModelId(merged, readSelection(file))
     },
+    activeEffort() {
+      return activeEffortOf(merged, readSelection(file))
+    },
     active() {
       const id = activeModelId(merged, readSelection(file))
-      return findModelEntry(merged, id) ?? merged.entries[0]
+      const entry = findModelEntry(merged, id) ?? merged.entries[0]
+      return entry === undefined
+        ? undefined
+        : { ...entry, reasoningEffort: activeEffortOf(merged, readSelection(file)) }
     },
-    select(id) {
+    select(id, effort) {
       if (findModelEntry(merged, id) === undefined) return false
-      writeSelection(file, id)
+      writeSelection(file, id, effort)
       return true
     },
   }

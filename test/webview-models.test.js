@@ -259,3 +259,137 @@ test('配置了目录但选中的是 Anthropic 项：仍走直通，只替换模
   })
   assert.equal(upstream.seen[0].body.model, 'deepseek-reasoner')
 })
+
+test('链路透传：OpenAI 协议条目把网页版 effort 翻成 reasoning_effort，没选就不带', async () => {
+  const home = tempHome()
+  const upstream = await fakeOpenAIUpstream()
+  process.env.TEST_KEY = 'sk-test-effort'
+  try {
+    const config = {
+      stateFile: path.join(home, 'state.json'),
+      models: [{ id: 'glm-5.3-flash', api: 'openai', baseURL: `${upstream.url}/openai/v1`, apiKeyEnv: 'TEST_KEY', upstreamModel: 'agent2api/glm-5.3-flash' }],
+    }
+    const site = await plugin(config, home)
+    const send = extra => fetch(`${site.url}/webchat/anthropic/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], stream: true, ...extra }),
+    })
+    assert.equal((await send({ thinking: { type: 'enabled', effort: 'high' } })).status, 200)
+    assert.equal(upstream.seen[0].body.reasoning_effort, 'high')
+    assert.equal((await send({ thinking: { type: 'enabled' } })).status, 200)
+    assert.equal('reasoning_effort' in upstream.seen[1].body, false)
+  } finally {
+    delete process.env.TEST_KEY
+  }
+})
+
+test('链路透传：DSH 目录条目把网页版 effort 透传到 prepareCall 与 stream', async () => {
+  const home = tempHome()
+  const calls = []
+  const ctx = {
+    get: name => (name === 'llm' ? ctx.llm : undefined),
+    llm: {
+      listProviders: () => [{ id: 'agent2api', name: 'Agent2API' }],
+      listModels: async provider => (provider === 'agent2api' ? [{ id: 'glm-5.3-flash', name: 'GLM 5.3 Flash' }] : []),
+      resolveModelInfo: async () => ({ reasoning: { efforts: [{ id: 'low', name: '低' }, { id: 'high', name: '高' }], defaultEffort: 'low' } }),
+      async prepareCall(config) {
+        const record = { config }
+        calls.push(record)
+        return {
+          config,
+          stream(options) {
+            record.streamOptions = options
+            return (async function* () {
+              yield { type: 'text-delta', text: '收到' }
+              yield { type: 'finish' }
+            })()
+          },
+        }
+      },
+    },
+  }
+  const site = await plugin({ stateFile: path.join(home, 'state.json') }, home, ctx)
+  const selected = await fetch(`${site.url}/webchat/api/models`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'agent2api/glm-5.3-flash' }),
+  })
+  assert.equal(selected.status, 200)
+  const send = extra => fetch(`${site.url}/webchat/anthropic/v1/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], stream: true, ...extra }),
+  })
+  const first = await send({ effort: 'high' })
+  assert.equal(first.status, 200)
+  assert.match(await first.text(), /event: message_stop/u)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].config.provider, 'agent2api')
+  assert.equal(calls[0].config.model, 'glm-5.3-flash')
+  assert.equal(calls[0].config.reasoningEffort, 'high')
+  assert.equal(calls[0].streamOptions.reasoningEffort, 'high')
+  const second = await send({})
+  assert.equal(second.status, 200)
+  assert.equal('reasoningEffort' in calls[1].config, false)
+  assert.equal('reasoningEffort' in calls[1].streamOptions, false)
+})
+
+/** 带 llm 服务的 ctx：返回 DSH 同一份目录（一个 provider 一个模型）。 */
+function ctxWithLlm() {
+  return {
+    get(name) {
+      if (name !== 'llm') return undefined
+      return {
+        listProviders: () => [{ id: 'agent2api', name: 'Agent2API' }],
+        listModels: async () => [{ id: 'glm-5.3-flash', name: 'GLM 5.3 Flash' }],
+        resolveModelInfo: async () => ({}),
+      }
+    },
+  }
+}
+
+test('DSH 目录下 /webchat/models 与 /webchat/api/models 暴露 provider 分组字段', async () => {
+  const home = tempHome()
+  const site = await plugin({ stateFile: path.join(home, 'state.json') }, home, ctxWithLlm())
+  const list = await (await fetch(`${site.url}/webchat/models`)).json()
+  assert.deepEqual(list.data.map(item => item.id), ['agent2api/glm-5.3-flash', 'deepseek-flash'])
+  assert.deepEqual(list.data[0], { id: 'agent2api/glm-5.3-flash', object: 'model', label: 'GLM 5.3 Flash', api: 'dsh', default: false, provider: 'agent2api', providerName: 'Agent2API' })
+  assert.equal('provider' in list.data[1], false)
+  const api = await (await fetch(`${site.url}/webchat/api/models`)).json()
+  assert.deepEqual(api.models[0], { id: 'agent2api/glm-5.3-flash', label: 'GLM 5.3 Flash', api: 'dsh', default: false, provider: 'agent2api', providerName: 'Agent2API' })
+  assert.equal('provider' in api.models[1], false)
+})
+
+test('/webchat/api/dsh-models：按 provider 分组返回，组 id/组名供前端两级菜单使用', async () => {
+  const home = tempHome()
+  const ctx = {
+    get(name) {
+      if (name !== 'llm') return undefined
+      return {
+        listProviders: () => [{ id: 'agent2api', name: 'Agent2API' }, { id: 'bifrost', name: 'Bifrost' }],
+        listModels: async provider => (provider === 'agent2api'
+          ? [{ id: 'glm-5.3-flash', name: 'GLM 5.3 Flash' }]
+          : [{ id: 'muse-spark', name: 'Muse Spark' }]),
+        resolveModelInfo: async () => ({}),
+      }
+    },
+  }
+  const site = await plugin({ stateFile: path.join(home, 'state.json') }, home, ctx)
+  const body = await (await fetch(`${site.url}/webchat/api/dsh-models`)).json()
+  assert.equal(body.ok, true)
+  assert.deepEqual(body.groups.map(group => [group.id, group.name]), [['agent2api', 'Agent2API'], ['bifrost', 'Bifrost']])
+  assert.deepEqual(body.groups.map(group => group.models.map(model => model.id)), [['glm-5.3-flash'], ['muse-spark']])
+  // 全部 provider 成功时不带 failures 字段（失败隔离见 dsh-models.test.js）。
+  assert.equal('failures' in body, false)
+})
+
+test('没有 llm 服务时两个模型接口保持向后兼容（不带 provider 字段）', async () => {
+  const home = tempHome()
+  const site = await plugin({ stateFile: path.join(home, 'state.json') }, home)
+  const list = await (await fetch(`${site.url}/webchat/models`)).json()
+  assert.deepEqual(list.data.map(item => item.id), ['deepseek-flash'])
+  assert.equal('provider' in list.data[0], false)
+  const api = await (await fetch(`${site.url}/webchat/api/models`)).json()
+  assert.deepEqual(api.models, [{ id: 'deepseek-flash', label: 'DeepSeek 网页版', api: 'anthropic', default: true }])
+})

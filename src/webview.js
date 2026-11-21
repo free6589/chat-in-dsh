@@ -548,43 +548,142 @@ function escapeHtml(value) {
     .replace(/"/gu, '&quot;')
 }
 
-/** 模型设置页：列出目录并切换当前模型。 */
+/** 设置页脚本要用的搜索模块（浏览器侧按 ESM 加载同一份源码）。 */
+const SEARCH_MODULE = fileURLToPath(new URL('./model-search.js', import.meta.url))
+
+/** 模型设置页：列出目录、按关键字过滤并切换当前模型。 */
 export function renderModelSettings(models) {
   const active = models.activeId()
-  const rows = models.list().map(item => `<li class="row${item.id === active ? ' on' : ''}">
+  const rows = models.list().map(item => {
+    const provider = typeof item.providerName === 'string' && item.providerName !== ''
+      ? item.providerName
+      : (typeof item.provider === 'string' && item.provider !== '' ? item.provider : '')
+    return `<li class="row${item.id === active ? ' on' : ''}" data-id="${escapeHtml(item.id)}" data-label="${escapeHtml(item.label)}" data-provider-name="${escapeHtml(provider)}" data-provider="${escapeHtml(item.provider ?? '')}" data-api="${escapeHtml(item.api)}">
       <label>
         <input type="radio" name="model" value="${escapeHtml(item.id)}"${item.id === active ? ' checked' : ''}>
         <span class="id">${escapeHtml(item.id)}</span>
-        <span class="meta">${escapeHtml(item.label)} · ${escapeHtml(item.api)}${item.default ? ' · 默认' : ''}</span>
+        <span class="meta"><span class="label">${escapeHtml(item.label)}</span> · <span class="provider">${escapeHtml(provider === '' ? item.api : provider)}</span>${item.default ? ' · 默认' : ''}</span>
       </label>
-    </li>`).join('\n')
+    </li>`
+  }).join('\n')
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>网页版模型</title>
 <style>
   body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:24px;color:#1f2328;background:#fff}
   h1{font-size:16px;margin:0 0 4px}
   p.hint{color:#6b7280;margin:0 0 16px;font-size:12px}
+  .search{display:flex;gap:6px;align-items:center;margin:0 0 12px}
+  .search input{font:inherit;flex:1;max-width:360px;padding:6px 10px;border-radius:6px;border:1px solid #d0d7de}
+  .search button{font:inherit;padding:4px 10px;border-radius:6px;border:1px solid #d0d7de;background:#fff;color:#1f2328;cursor:pointer}
   ul{list-style:none;padding:0;margin:0 0 16px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden}
   li.row{border-top:1px solid #f0f0f0}
   li.row:first-child{border-top:none}
   li.on{background:#f5f8ff}
+  li[hidden]{display:none}
   label{display:flex;align-items:baseline;gap:8px;padding:10px 12px;cursor:pointer}
   .id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   .meta{color:#6b7280;font-size:12px}
+  mark{background:#fde68a;color:inherit;border-radius:2px}
   button{font:inherit;padding:6px 14px;border-radius:6px;border:1px solid #d0d7de;background:#1f6feb;color:#fff;cursor:pointer}
   #status{margin-left:12px;color:#6b7280;font-size:12px}
+  #empty{margin:0 0 16px;color:#6b7280;font-size:12px}
+  #empty[hidden]{display:none}
 </style></head>
 <body>
 <h1>网页版使用哪个模型</h1>
 <p class="hint">选择后立刻生效，后续对话转发到这个模型；目录来自插件配置的 models。</p>
-<ul>
+<div class="search">
+  <input id="search" type="search" autocomplete="off" placeholder="搜索模型或 provider…" aria-label="搜索模型">
+  <button id="clear" type="button" aria-label="清除搜索" hidden>清除</button>
+</div>
+<p class="hint" id="active-line">当前：<span id="active-id">${escapeHtml(active)}</span></p>
+<ul id="list">
 ${rows}
 </ul>
+<p id="empty" role="status" hidden></p>
 <button id="save" type="button">保存</button><span id="status"></span>
-<script>
-document.getElementById('save').addEventListener('click', async function () {
+<script type="module">
+import { matchEntry, highlightSegments, EMPTY_NO_MATCH, EMPTY_NO_MODELS } from '/webchat/settings-search.js'
+
+const search = document.getElementById('search')
+const clear = document.getElementById('clear')
+const empty = document.getElementById('empty')
+const list = document.getElementById('list')
+const save = document.getElementById('save')
+const status = document.getElementById('status')
+const items = Array.from(list.querySelectorAll('li.row')).map(node => ({
+  node,
+  input: node.querySelector('input[name=model]'),
+  id: node.querySelector('.id'),
+  label: node.querySelector('.label'),
+  provider: node.querySelector('.provider'),
+  entry: {
+    id: node.dataset.id || '',
+    label: node.dataset.label || '',
+    providerName: node.dataset.providerName || '',
+    provider: node.dataset.provider || '',
+    api: node.dataset.api || '',
+  },
+}))
+
+/** 把一段文本按命中下标重画，命中部分包 <mark>；纯文本用 textContent 落地，不拼 HTML。 */
+function paint(node, text, indices) {
+  node.replaceChildren(...highlightSegments(text, indices).map(segment => {
+    if (!segment.hit) return document.createTextNode(segment.text)
+    const mark = document.createElement('mark')
+    mark.textContent = segment.text
+    return mark
+  }))
+}
+
+/** 按当前查询过滤：命中的行按匹配度排前，没命中的隐藏；选中项只隐藏，不重建、不改选中状态。 */
+function render() {
+  const query = search.value
+  clear.hidden = query === ''
+  const ranked = []
+  for (const item of items) {
+    const hit = matchEntry(item.entry, query, ['label', 'id', 'providerName', 'provider', 'api'])
+    paint(item.id, item.entry.id, hit?.field === 'id' ? hit.indices : [])
+    paint(item.label, item.entry.label, hit?.field === 'label' ? hit.indices : [])
+    paint(item.provider, item.provider.textContent, hit && ['provider', 'providerName', 'api'].includes(hit.field) ? hit.indices : [])
+    item.node.hidden = hit === undefined
+    if (hit !== undefined) ranked.push({ item, hit })
+  }
+  ranked.sort((left, right) => left.hit.score - right.hit.score)
+  for (const { item } of ranked) list.append(item.node)
+  for (const item of items) if (item.node.hidden) list.append(item.node)
+  empty.hidden = ranked.length > 0
+  empty.textContent = ranked.length > 0 ? '' : (items.length === 0 ? EMPTY_NO_MODELS : EMPTY_NO_MATCH)
+  const checked = document.querySelector('input[name=model]:checked')
+  document.getElementById('active-id').textContent = checked === null ? '未选择' : checked.value
+  status.textContent = ranked.length === items.length ? '' : ('显示 ' + ranked.length + ' / ' + items.length)
+}
+
+/** 上下键在可见行之间挪选中项，回车直接保存。 */
+function move(step) {
+  const visible = items.filter(item => !item.node.hidden)
+  if (visible.length === 0) return
+  const current = visible.findIndex(item => item.input.checked)
+  const next = visible[(current + step + visible.length) % visible.length]
+  next.input.checked = true
+  next.node.scrollIntoView({ block: 'nearest' })
+  render()
+}
+
+search.addEventListener('input', render)
+search.addEventListener('keydown', event => {
+  if (event.key === 'ArrowDown') { event.preventDefault(); move(1) }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1) }
+  else if (event.key === 'Enter') { event.preventDefault(); save.click() }
+  else if (event.key === 'Escape') { search.value = ''; render() }
+})
+clear.addEventListener('click', () => { search.value = ''; render(); search.focus() })
+list.addEventListener('change', render)
+render()
+document.body.dataset.search = 'ready'
+
+save.addEventListener('click', async function () {
   var picked = document.querySelector('input[name=model]:checked')
-  var status = document.getElementById('status')
   if (!picked) { status.textContent = '先选一个模型'; return }
   status.textContent = '保存中…'
   try {
@@ -677,7 +776,15 @@ export function createWebview(ctx, config, home) {
       const registry = await registryFor()
       sendJson(res, {
         object: 'list',
-        data: registry.list().map(item => ({ id: item.id, object: 'model', label: item.label, api: item.api, default: item.default })),
+        // provider/providerName 只随 DSH 分组条目出现；插件项与默认单项不带，保持向后兼容。
+        data: registry.list().map(item => ({
+          id: item.id,
+          object: 'model',
+          label: item.label,
+          api: item.api,
+          default: item.default,
+          ...(item.provider === undefined ? {} : { provider: item.provider, providerName: item.providerName }),
+        })),
         default: registry.activeId(),
       })
       return
@@ -694,21 +801,31 @@ export function createWebview(ctx, config, home) {
       return
     }
 
-    // 模型选择：GET 看可选模型与当前选择，POST { id } 切换（落在 DSH_HOME 的状态文件里）。
+    // 模型选择：GET 看可选模型与当前选择（含 effort），POST { id, effort? } 切换
+    // （落在 DSH_HOME 的状态文件里；effort 随选择落盘，派发时透传 reasoningEffort）。
     if (pathname === '/webchat/api/models') {
       const registry = await registryFor()
       if (isGet) {
-        sendJson(res, { ok: true, models: registry.list(), active: registry.activeId(), stateFile: registry.file })
+        sendJson(res, {
+          ok: true,
+          models: registry.list(),
+          active: registry.activeId(),
+          activeEffort: registry.activeEffort(),
+          stateFile: registry.file,
+        })
         return
       }
       if (method === 'POST') {
         const body = await readJsonBody(req)
         const id = typeof body?.id === 'string' ? body.id.trim() : ''
-        if (!registry.select(id)) {
+        const effort = typeof body?.effort === 'string' && body.effort.trim() !== ''
+          ? body.effort.trim()
+          : undefined
+        if (!registry.select(id, effort)) {
           sendJson(res, { ok: false, error: `没有这个模型：${id}` }, 404)
           return
         }
-        sendJson(res, { ok: true, active: registry.activeId() })
+        sendJson(res, { ok: true, active: registry.activeId(), activeEffort: registry.activeEffort() })
         return
       }
     }
@@ -716,6 +833,18 @@ export function createWebview(ctx, config, home) {
     // 设置页：模型列表 + 单选切换（网页版前端产物不好重建，选择界面放在宿主这边）。
     if (pathname === '/webchat/settings' && isGet) {
       sendHtml(res, renderModelSettings(await registryFor()))
+      return
+    }
+
+    // 设置页的搜索模块：浏览器按 ESM 加载这一份源码，和面板菜单共用同一套匹配规则。
+    if (pathname === '/webchat/settings-search.js' && isGet) {
+      const source = fs.readFileSync(SEARCH_MODULE, 'utf8')
+      res.writeHead(200, {
+        'content-type': MIME['.js'],
+        'cache-control': 'no-store',
+        'content-length': Buffer.byteLength(source),
+      })
+      res.end(method === 'HEAD' ? undefined : source)
       return
     }
 

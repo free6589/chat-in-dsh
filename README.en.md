@@ -93,15 +93,41 @@ Only when the host has no model catalog (or you want a few pinned entries) do yo
     defaultModel: deepseek-flash
 ```
 
-The panel header has a model picker — switching takes effect immediately (`/webchat/settings` is the full settings page for the same selection). Scripts can use
-`GET /webchat/api/models` for the catalog and selection, and `POST /webchat/api/models {"id":"..."}` to switch.
-The selection lives in `$DSH_HOME/chat-in-dsh/model-state.json`; delete that file to fall back to `defaultModel`.
+The panel header has a model picker. Opening it shows a search box and the models grouped by provider;
+typing filters by model name, model id, or provider name. Rows for models with reasoning levels carry a
+`›` on the right that opens a second level listing the efforts from `reasoning.efforts` of that model.
+The picker collapses on selection and the bar then shows the current level, e.g. `effort: high`.
+
+The selection (model plus effort) lives in `$DSH_HOME/chat-in-dsh/model-state.json`; delete that file to
+fall back to `defaultModel`. `/webchat/settings` is the full settings page for the same selection. Scripts can
+use `GET /webchat/api/models` for the catalog, the active model and `activeEffort`, and
+`POST /webchat/api/models {"id":"...","effort":"high"}` to switch both at once. Sending only `id` clears the
+level instead of carrying the previous one over.
 
 Both protocols work: `api: anthropic` entries are proxied verbatim (only the model id in the request body is
 replaced), `api: openai` entries are translated to `chat.completions` and the chunk stream is translated back
 into Anthropic events (reasoning becomes a thinking block), so the bundled UI needs no rebuild. Keys are only
 read from DSH credentials or the environment variable named by `apiKeyEnv`; the browser never holds one.
 Attachments still go through the official Files API, so they are unavailable while a non-official model is selected.
+
+How effort travels: `api: openai` entries turn the top-level `effort` (or `thinking.effort`) into
+`reasoning_effort` in the upstream body; DSH catalog entries pass it on as `reasoningEffort` to `prepareCall`.
+With no effort selected the request body is byte-identical to 1.4.0.
+
+### Verification evidence
+
+`docs/evidence/` holds the raw output of the latest real-upstream run:
+
+- [`live-e2e.json`](docs/evidence/live-e2e.json): the plugin's upstream points at an in-process recording reverse
+  proxy that forwards verbatim to the local bifrost gateway. The record shows `reasoning_effort: "high"` reaching
+  the upstream, the field being absent when no level is selected, and the upstream answering with the new model id
+  after switching to a different provider.
+- [`profile-e2e.json`](docs/evidence/profile-e2e.json): runs against a real `dsh web` instance whose catalog comes
+  from the profile (three provider groups); cross-group switching, effort persistence, and a real upstream chat
+  with effort are all recorded there.
+- [`ui-e2e.json`](docs/evidence/ui-e2e.json): real Chromium opens the two-level menu, filters by keyword, picks an
+  effort, then sends a message in the panel and waits for the real answer. Screenshots: `settings.png`,
+  `model-menu.png`, `panel-chat.png`.
 
 ## Bring conversations in
 

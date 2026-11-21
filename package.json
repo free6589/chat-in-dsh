@@ -50,9 +50,10 @@
     }
   },
   "scripts": {
-    "test": "node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js test/models.test.js test/openai-bridge.test.js test/webview-models.test.js test/dsh-models.test.js",
+    "test": "node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js test/models.test.js test/openai-bridge.test.js test/webview-models.test.js test/dsh-models.test.js test/model-search.test.js test/settings-search.test.js test/client-model-menu.test.js",
     "test:e2e": "node test/live-e2e.mjs",
-    "build:webview": "pwsh scripts/build-webview.ps1"
+    "build:webview": "pwsh scripts/build-webview.ps1",
+    "test:settings-search": "node test/settings-search-e2e.mjs"
   },
   "engines": {
     "node": ">=22.12",
