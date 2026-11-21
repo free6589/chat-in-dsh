@@ -32,8 +32,18 @@
 - [x] `npm test` 54 项全过（含新增 `test/dsh-models.test.js` 10 项）
 - [x] 真上游 e2e 全过（GLM 真实回答，自检三项 ok）
 - [x] signal 修复经桩验证通过
-- [ ] 真实 profile 自检（等用户贴 `/webchat/api/self-test` 的 `messages` 项）
-- [ ] 面板点选 + 发一句话（等用户操作）
+- [x] 真实 profile 自检（隔离实例全自动跑完，`scripts/verify-profile.mjs`）
+- [x] 面板点选 + 发一句话（CDP 真实鼠标，ui-e2e 全过）
+
+## 五、本轮验证结论（2026-11-21 隔离实例）
+
+- `scripts/verify-profile.mjs` 一键跑完：PROFILE_E2E_OK + UI_E2E_OK
+- 目录：21 项（bifrost/agent2api 全量 + deepseek-flash + glm-5.3-flash），与 DSH 聊天框同源
+- 切换落盘：`~/.dsh/chat-in-dsh/model-state.json` → glm-5.3-flash ✅
+- 真实对话：GLM 自报身份 ✅；自检四项全绿 ✅
+- 面板回答自称 DeepSeek：agent2api 网关侧路由方差（同网关此前也返回过 Kimi/Grok），
+  非面板选择失效（保存落盘成功为证）
+- 新 signal 修复（AbortController）经隔离实例自检链路验证通过
 
 ## 四、待办
 

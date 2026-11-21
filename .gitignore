@@ -13,3 +13,6 @@ webview/vendor/
 
 # 本地验证产物（端到端证据、临时探测脚本）
 .scratch/
+# 浏览器截图证据（体积大，不入库；JSON 证据入库）
+docs/evidence/*.png
+docs/evidence/.chromium-ui-e2e/

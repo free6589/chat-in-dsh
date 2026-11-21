@@ -165,6 +165,8 @@ const clicked = await clickSelector(`input[name=model][value="${targetModel}"]`)
 const checked = await evaluate(`document.querySelector('input[name=model]:checked')?.value ?? null`)
 record('真实鼠标点选目标模型', clicked === true && checked === targetModel, `checked=${checked}`)
 
+await evaluate(`document.querySelector('#save')?.scrollIntoView({ block: 'center' })`)
+await sleep(500)
 const saved = await clickSelector('#save')
 const status = await waitFor(`(() => { const s = document.getElementById('status')?.textContent ?? ''; return s.includes('已切换') ? s : undefined })()`, 10000)
 record('点「保存」并落盘', saved === true && typeof status === 'string', JSON.stringify(status ?? null))

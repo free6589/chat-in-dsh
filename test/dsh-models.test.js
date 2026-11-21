@@ -142,3 +142,11 @@ test('toGenerateInput：空消息被丢掉，图片块只留文本', () => {
   assert.deepEqual(input.messages, [])
   assert.equal(input.system, undefined)
 })
+
+test('toGenerateInput：system 数组压平，图片块丢掉', () => {
+  const input = toGenerateInput({
+    system: [{ type: 'text', text: 'A' }, { type: 'text', text: 'B' }],
+    messages: [{ role: 'user', content: 'hi' }],
+  })
+  assert.equal(input.system, 'A\nB')
+})
