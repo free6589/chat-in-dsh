@@ -1,7 +1,7 @@
 {
-  "startedAt": "2026-11-21T13:25:36.820Z",
+  "startedAt": "2026-11-21T13:28:58.187Z",
   "base": "http://127.0.0.1:3199",
-  "model": "glm-5.3-flash",
+  "model": "agent2api/glm-5.3-flash",
   "steps": [
     {
       "name": "打开真实 DSH Web UI",
@@ -16,17 +16,17 @@
     {
       "name": "真实鼠标点选目标模型",
       "ok": true,
-      "detail": "checked=glm-5.3-flash"
+      "detail": "checked=agent2api/glm-5.3-flash"
     },
     {
       "name": "点「保存」并落盘",
       "ok": true,
-      "detail": "\"已切换到 glm-5.3-flash\""
+      "detail": "\"已切换到 agent2api/glm-5.3-flash\""
     },
     {
       "name": "设置页截图",
       "ok": true,
-      "detail": "docs/evidence/settings.png 40544 bytes"
+      "detail": "docs/evidence/settings.png 41392 bytes"
     },
     {
       "name": "面板里输入并点发送",
@@ -36,15 +36,15 @@
     {
       "name": "面板里出现模型回答",
       "ok": true,
-      "detail": "\"我是DeepSeek模型，由深度求索公司（DeepSeek）\""
+      "detail": "\"我是DeepSeek模型，由深度求索公司训练。\""
     },
     {
       "name": "面板截图",
       "ok": true,
-      "detail": "docs/evidence/panel-chat.png 47314 bytes"
+      "detail": "docs/evidence/panel-chat.png 39981 bytes"
     }
   ],
-  "answer": "我是DeepSeek模型，由深度求索公司（DeepSeek）",
+  "answer": "我是DeepSeek模型，由深度求索公司训练。",
   "ok": true,
-  "finishedAt": "2026-11-21T13:25:48.879Z"
+  "finishedAt": "2026-11-21T13:29:08.237Z"
 }

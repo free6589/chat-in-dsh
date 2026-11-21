@@ -45,6 +45,18 @@
   非面板选择失效（保存落盘成功为证）
 - 新 signal 修复（AbortController）经隔离实例自检链路验证通过
 
+## 六、上游作者修复（2026-11-21 21:12，ff76a43）
+
+- 上游作者 Yin-Kai Yu 直接推到本分支：`prepareCall` 真实接口是
+  `prepareCall(config, signal)`（config 含 provider/model），
+  `stream` 用 `{ ...prepared.config, signal }`；signal 不能进 config
+  （会被结构化克隆成普通对象）；自检 maxTokens 16→64
+- 这才是 `signal?.throwIfAborted is not a function` 的真根因：
+  我们之前按 `(provider, model, signal)` 三参调用，adapter 内部错位
+- 用 DSH 目录项 `agent2api/glm-5.3-flash` 重跑隔离验证：
+  PROFILE_E2E_OK + UI_E2E_OK，自检 messages「收到」，
+  真实对话 GLM 自报身份 —— DSH 派发链路彻底通了
+
 ## 四、待办
 
 1. 用户贴新自检结果 → 若 `messages.ok=true` 则第一步闭环
