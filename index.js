@@ -12,7 +12,7 @@ import path from 'node:path'
 import { createWebview } from './src/webview.js'
 
 export const name = 'chat-in-dsh'
-export const inject = ['webServer']
+export const inject = ['webServer', 'llm']
 
 /**
  * 插件入口。

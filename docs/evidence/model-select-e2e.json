@@ -1,0 +1,79 @@
+{
+  "startedAt": "2026-11-21T00:32:57.283Z",
+  "profile": {
+    "home": "/home/fish",
+    "credential": "BIFROST_VIRTUAL_KEY",
+    "credentialSource": "process.env"
+  },
+  "upstream": {
+    "baseURL": "http://127.0.0.1:18088/openai/v1",
+    "model": "agent2api/glm-5.3-flash"
+  },
+  "steps": [
+    {
+      "name": "默认目录未配置 models 时仍是官方单项",
+      "ok": true,
+      "detail": "[{\"id\":\"deepseek-flash\",\"object\":\"model\",\"label\":\"DeepSeek 网页版\",\"api\":\"anthropic\",\"default\":true}]"
+    },
+    {
+      "name": "可选模型列表",
+      "ok": true,
+      "detail": "deepseek-flash/anthropic, glm-5.3-flash/openai"
+    },
+    {
+      "name": "切换到非官方模型",
+      "ok": true,
+      "detail": "{\"ok\":true,\"active\":\"glm-5.3-flash\"}"
+    },
+    {
+      "name": "上游路由确认（非 DeepSeek 官方）",
+      "ok": true,
+      "detail": "provider=agent2api model=glm-5.3-flash",
+      "extra": {
+        "provider": "agent2api",
+        "model": "glm-5.3-flash",
+        "key": "agent2apimain",
+        "requested_provider": "agent2api",
+        "requested_model": "glm-5.3-flash"
+      }
+    },
+    {
+      "name": "选择已落盘",
+      "ok": true,
+      "detail": "state=glm-5.3-flash"
+    },
+    {
+      "name": "真实对话 HTTP 200",
+      "ok": true,
+      "detail": "status=200 2923ms"
+    },
+    {
+      "name": "Anthropic 事件序列完整",
+      "ok": true,
+      "detail": "message_start → content_block_start → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_stop → content_block_start → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_delta → content_block_stop → message_delta → message_stop"
+    },
+    {
+      "name": "收到真实模型回答",
+      "ok": true,
+      "detail": "\"我是由智谱（Z.ai）训练的大语言模型 GLM。\" (thinking 260 chars)"
+    },
+    {
+      "name": "自检三项",
+      "ok": true,
+      "detail": "index:ok, static:ok, model:ok, messages:ok"
+    },
+    {
+      "name": "设置页可见可选模型",
+      "ok": true,
+      "detail": "2272 bytes"
+    }
+  ],
+  "answer": {
+    "text": "我是由智谱（Z.ai）训练的大语言模型 GLM。",
+    "thinkingChars": 260,
+    "elapsedMs": 2923,
+    "events": 16
+  },
+  "ok": true,
+  "finishedAt": "2026-11-21T00:33:04.759Z"
+}

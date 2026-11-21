@@ -1,0 +1,19 @@
+# chat-in-dsh 模型目录：把这段追加到 profile 的 cordis.patch.yml，
+# 或者临时叠加：dsh --profile web --patch ./models.patch.yml
+#
+# 不配 models 时目录只有 DeepSeek 网页版一项，转发行为与旧版完全一致。
+# 配了之后，网页版请求里的 model 会被替换成所选目录项的 upstreamModel ?? id。
+- id: chat-in-dsh
+  config:
+    models:
+      # 保留默认：官方 DeepSeek（Anthropic 兼容端点，走 DSH 账户凭据 / DEEPSEEK_API_KEY）
+      - id: deepseek-flash
+        label: DeepSeek 网页版
+        api: anthropic
+      # 自定义模型示例：OpenAI 兼容网关，宿主把 Anthropic 请求翻成 chat.completions
+      - id: glm-5.3-flash
+        label: GLM 5.3 Flash（bifrost）
+        api: openai
+        baseURL: http://127.0.0.1:18088/openai/v1
+        upstreamModel: agent2api/glm-5.3-flash
+        apiKeyEnv: BIFROST_VIRTUAL_KEY

@@ -1,0 +1,117 @@
+{
+  "startedAt": "2026-11-21T16:41:47.012Z",
+  "host": {
+    "base": "http://127.0.0.1:3199",
+    "kind": "dsh web (real profile)"
+  },
+  "steps": [
+    {
+      "name": "DSH 宿主可登录（/ 带 token）",
+      "ok": true,
+      "detail": "HTTP 303"
+    },
+    {
+      "name": "登录拿到会话 cookie",
+      "ok": true,
+      "detail": "1 个 cookie（值不入库）"
+    },
+    {
+      "name": "目录来自 profile 配置（含默认官方项与自定义项）",
+      "ok": true,
+      "detail": "200 [\"bifrost-responses/opencode-go/muse-spark-1.3-contributor\",\"bifrost-completions/agnes-3.0-flash\",\"bifrost-completions/tokenrhythm/glm-5.3-flash\",\"bifrost-completions/tokenrhythm/mimo-v2.6-flash\",\"bifrost-completions/tokenrhythm/mimo-v2.6-pro\",\"bifrost-completions/tokenrhythm/qwen3.8-flash\",\"bifrost-completions/agnes/agnes-image-2.5-flash\",\"bifrost-completions/agnes-cn/agnes-image-2.5-flash\",\"agent2api/scnet\",\"agent2api/glm-5.3-flash\",\"agent2api/MiniMax-M3.1-Flash\",\"agent2api/qwen3.8-flash\",\"agent2api/spark-x2.6\",\"agent2api/deepseek-v4.1-flash\",\"agent2api/mimo-v2.6-pro\",\"agent2api/hy4free\",\"agent2api/mimo-v2.6-flash\",\"agent2api/muse-spark-1.3-contributor\",\"agent2api/dp/deepseek-v4.1-flash\",\"deepseek-flash\",\"glm-5.3-flash\"]"
+    },
+    {
+      "name": "设置页列出可选模型",
+      "ok": true,
+      "detail": "HTTP 200 radios=[\"bifrost-responses/opencode-go/muse-spark-1.3-contributor\",\"bifrost-completions/agnes-3.0-flash\",\"bifrost-completions/tokenrhythm/glm-5.3-flash\",\"bifrost-completions/tokenrhythm/mimo-v2.6-flash\",\"bifrost-completions/tokenrhythm/mimo-v2.6-pro\",\"bifrost-completions/tokenrhythm/qwen3.8-flash\",\"bifrost-completions/agnes/agnes-image-2.5-flash\",\"bifrost-completions/agnes-cn/agnes-image-2.5-flash\",\"agent2api/scnet\",\"agent2api/glm-5.3-flash\",\"agent2api/MiniMax-M3.1-Flash\",\"agent2api/qwen3.8-flash\",\"agent2api/spark-x2.6\",\"agent2api/deepseek-v4.1-flash\",\"agent2api/mimo-v2.6-pro\",\"agent2api/hy4free\",\"agent2api/mimo-v2.6-flash\",\"agent2api/muse-spark-1.3-contributor\",\"agent2api/dp/deepseek-v4.1-flash\",\"deepseek-flash\",\"glm-5.3-flash\"]"
+    },
+    {
+      "name": "目录按 provider 分组（真实 DSH 目录）",
+      "ok": true,
+      "detail": "3 组：bifrost-responses, bifrost-completions, agent2api；带分组字段 19/21 条"
+    },
+    {
+      "name": "切换到自定义模型",
+      "ok": true,
+      "detail": "{\"ok\":true,\"active\":\"agent2api/glm-5.3-flash\"}"
+    },
+    {
+      "name": "选择落在 DSH_HOME",
+      "ok": true,
+      "detail": "/home/fish/.dsh/chat-in-dsh/model-state.json → {\"model\":\"agent2api/glm-5.3-flash\"}"
+    },
+    {
+      "name": "真实对话 HTTP 200（真上游，非打桩）",
+      "ok": true,
+      "detail": "status=200 2594ms"
+    },
+    {
+      "name": "收到真实模型回答",
+      "ok": true,
+      "detail": "\"我是由智谱（Z.ai）训练的GLM大语言模型。\"（thinking 0 字符）"
+    },
+    {
+      "name": "Anthropic 事件序列完整",
+      "ok": true,
+      "detail": "21 个事件：message_start → content_block_start → content_block_delta … message_stop"
+    },
+    {
+      "name": "自检四项全绿且第三项带当前模型",
+      "ok": true,
+      "detail": "[{\"name\":\"index\",\"ok\":true,\"detail\":\"705 bytes\"},{\"name\":\"static\",\"ok\":true,\"detail\":\"static/js/main.2ba5e326.js\"},{\"name\":\"model\",\"ok\":true,\"detail\":\"agent2api/glm-5.3-flash · dsh\"},{\"name\":\"messages\",\"ok\":true,\"detail\":\"agent2api/glm-5.3-flash · 收到\"}]"
+    },
+    {
+      "name": "真上游目录里有带 effort 的跨组模型",
+      "ok": true,
+      "detail": "bifrost-responses/opencode-go/muse-spark-1.3-contributor efforts=off/minimal/low/medium/high/xhigh/max"
+    },
+    {
+      "name": "跨分组切换模型",
+      "ok": true,
+      "detail": "{\"ok\":true,\"active\":\"bifrost-responses/opencode-go/muse-spark-1.3-contributor\"}"
+    },
+    {
+      "name": "跨分组后真上游回答 200",
+      "ok": true,
+      "detail": "status=200 8333ms \"我是Muse Spark，由Meta训练的友好AI助手。\""
+    },
+    {
+      "name": "选 effort：接口回读与状态文件一致",
+      "ok": true,
+      "detail": "efforts=off/minimal/low/medium/high/xhigh/max POST→{\"ok\":true,\"active\":\"bifrost-responses/opencode-go/muse-spark-1.3-contributor\",\"activeEffort\":\"high\"} 文件 effort=\"high\""
+    },
+    {
+      "name": "带 effort 的真上游对话 200（thinking 开启）",
+      "ok": true,
+      "detail": "status=200 3115ms \"我是Muse Spark，由Meta训练的。\"（thinking 97 字符）"
+    },
+    {
+      "name": "不带 effort 换模型时档位不残留",
+      "ok": true,
+      "detail": "POST→{\"ok\":true,\"active\":\"bifrost-responses/opencode-go/muse-spark-1.3-contributor\"} 文件 effort=undefined"
+    },
+    {
+      "name": "默认项仍走官方 DeepSeek 直通路径",
+      "ok": true,
+      "detail": "active=deepseek-flash status=401 Authentication Fails, Your api key: ****9da8 is invalid (request_id: 66a9adb5-3bb5-48fa-a874-0ce85ac809ba)"
+    }
+  ],
+  "answer": {
+    "text": "我是由智谱（Z.ai）训练的GLM大语言模型。",
+    "thinkingChars": 0,
+    "elapsedMs": 2594,
+    "events": 21
+  },
+  "catalog": {
+    "providers": [
+      "bifrost-responses",
+      "bifrost-completions",
+      "agent2api"
+    ],
+    "groupedEntries": 19,
+    "total": 21
+  },
+  "group": "bifrost-responses/opencode-go/muse-spark-1.3-contributor",
+  "ok": true,
+  "finishedAt": "2026-11-21T16:42:03.857Z"
+}

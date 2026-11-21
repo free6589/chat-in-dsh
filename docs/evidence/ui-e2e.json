@@ -1,0 +1,85 @@
+{
+  "startedAt": "2026-11-21T16:42:03.906Z",
+  "base": "http://127.0.0.1:3199",
+  "model": "agent2api/glm-5.3-flash",
+  "steps": [
+    {
+      "name": "打开真实 DSH Web UI",
+      "ok": true,
+      "detail": "\"DeepSeek Harness\""
+    },
+    {
+      "name": "设置页列出可选模型",
+      "ok": true,
+      "detail": "[\"bifrost-responses/opencode-go/muse-spark-1.3-contributor\",\"bifrost-completions/agnes-3.0-flash\",\"bifrost-completions/tokenrhythm/glm-5.3-flash\",\"bifrost-completions/tokenrhythm/mimo-v2.6-flash\",\"bifrost-completions/tokenrhythm/mimo-v2.6-pro\",\"bifrost-completions/tokenrhythm/qwen3.8-flash\",\"bifrost-completions/agnes/agnes-image-2.5-flash\",\"bifrost-completions/agnes-cn/agnes-image-2.5-flash\",\"agent2api/scnet\",\"agent2api/glm-5.3-flash\",\"agent2api/MiniMax-M3.1-Flash\",\"agent2api/qwen3.8-flash\",\"agent2api/spark-x2.6\",\"agent2api/deepseek-v4.1-flash\",\"agent2api/mimo-v2.6-pro\",\"agent2api/hy4free\",\"agent2api/mimo-v2.6-flash\",\"agent2api/muse-spark-1.3-contributor\",\"agent2api/dp/deepseek-v4.1-flash\",\"deepseek-flash\",\"glm-5.3-flash\"]"
+    },
+    {
+      "name": "真实鼠标点选目标模型",
+      "ok": true,
+      "detail": "checked=agent2api/glm-5.3-flash"
+    },
+    {
+      "name": "点「保存」并落盘",
+      "ok": true,
+      "detail": "\"已切换到 agent2api/glm-5.3-flash\""
+    },
+    {
+      "name": "设置页截图",
+      "ok": true,
+      "detail": "docs/evidence/settings.png 106328 bytes"
+    },
+    {
+      "name": "打开网页版面板",
+      "ok": true,
+      "detail": "opened=true frame={\"x\":280,\"y\":33,\"w\":1160,\"h\":727}"
+    },
+    {
+      "name": "点开模型菜单",
+      "ok": true,
+      "detail": "Responses | muse-spark-1.3(oc) | ✓ | › | Completions | Agnes 3.0 Flash | › | GLM 5.3 Flash (tokenrhythm) | › | MiMo V2.6 Flash (tokenrhythm) | MiMo V2.6 Pro (tokenrhythm) | Qwen3.8 F"
+    },
+    {
+      "name": "菜单按 provider 分组列出模型",
+      "ok": true,
+      "detail": "命中分组=Responses, Completions, agent2api；目录分组=Responses, Completions, agent2api"
+    },
+    {
+      "name": "搜索框按关键词过滤模型",
+      "ok": true,
+      "detail": "过滤前 34 个按钮 → 过滤后 2 行：[\"GLM 5.3 Flash (tokenrhythm)\",\"GLM-5.3-Flash\"]"
+    },
+    {
+      "name": "模型菜单截图",
+      "ok": true,
+      "detail": "docs/evidence/model-menu.png 79862 bytes"
+    },
+    {
+      "name": "进入 effort 档位列表",
+      "ok": true,
+      "detail": "‹ 返回模型列表 | Completions / GLM 5.3 Flash (tokenrhythm) | Low | High | Max"
+    },
+    {
+      "name": "点 effort 后落盘并在选择条上回显",
+      "ok": true,
+      "detail": "选择条=\"模型\\nGLM 5.3 Flash (tokenrhythm)\\neffort: high\\n与 DSH 聊天框同款目录\" 接口 activeEffort=\"high\""
+    },
+    {
+      "name": "面板里输入并点发送",
+      "ok": true,
+      "detail": "真实鼠标点发送按钮"
+    },
+    {
+      "name": "面板里出现模型回答",
+      "ok": true,
+      "detail": "\"sent-no-reply-yet\""
+    },
+    {
+      "name": "面板截图",
+      "ok": true,
+      "detail": "docs/evidence/panel-chat.png 82869 bytes"
+    }
+  ],
+  "answer": "sent-no-reply-yet",
+  "ok": true,
+  "finishedAt": "2026-11-21T16:42:16.663Z"
+}

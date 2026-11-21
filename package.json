@@ -1,6 +1,6 @@
 {
   "name": "chat-in-dsh",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "type": "module",
   "description": "在 DeepSeek Harness 里加一个和网页版一模一样的对话面板：官方 chat-demo 界面，用 DSH 的账户凭据，不需要填 API Key。",
   "license": "MIT",
@@ -50,8 +50,10 @@
     }
   },
   "scripts": {
-    "test": "node --test test/protocol.test.js test/dsh-import.test.js",
-    "build:webview": "pwsh scripts/build-webview.ps1"
+    "test": "node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js test/models.test.js test/openai-bridge.test.js test/webview-models.test.js test/dsh-models.test.js test/model-search.test.js test/settings-search.test.js test/client-model-menu.test.js",
+    "test:e2e": "node test/live-e2e.mjs",
+    "build:webview": "pwsh scripts/build-webview.ps1",
+    "test:settings-search": "node test/settings-search-e2e.mjs"
   },
   "engines": {
     "node": ">=22.12",

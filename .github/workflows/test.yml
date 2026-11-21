@@ -22,11 +22,19 @@ jobs:
           node --check client.js
           node --check src/protocol.js
           node --check src/webview.js
+          node --check src/models.js
+          node --check src/openai-bridge.js
+          node --check test/live-e2e.mjs
+          node --check src/dsh-models.js
+          node --check src/dsh-dispatch.js
+          node --check test/dsh-models.test.js
+          node --check test/profile-e2e.mjs
+          node --check test/ui-e2e.mjs
           node --check scripts/smoke-webview.mjs
 
       - name: 清单可解析
         run: node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"
 
       - name: 单元测试
-        run: node --test test/protocol.test.js test/dsh-import.test.js
+        run: node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js test/models.test.js test/openai-bridge.test.js test/webview-models.test.js test/dsh-models.test.js
 

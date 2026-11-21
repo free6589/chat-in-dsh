@@ -67,6 +67,60 @@
 
 面板里有自己的会话列表，和 DSH 的会话分开管理。
 
+## 换用其他模型（可选）
+
+默认什么都不用配：面板顶部选择条直接列出 **DSH 聊天框同一份模型目录**（provider 分组，
+与 DSH 同源同顺序），选中经 DSH 的 provider 发请求，不需要你再配一遍。
+
+如果 DSH 宿主侧没有模型目录（或你想固定几个入口），才需要在插件配置里给一份
+`models` 兜底目录（省略时仍是官方单项）：
+
+```yaml
+- id: chat-in-dsh
+  name: chat-in-dsh
+  config:
+    models:
+      - id: deepseek-flash          # 面板里显示的模型名
+        label: DeepSeek 网页版
+        api: anthropic              # Anthropic Messages 协议，直通
+        baseURL: https://api.deepseek.com/anthropic
+      - id: glm-5.3-flash
+        label: GLM 5.3 Flash
+        api: openai                 # OpenAI Chat Completions 协议，由宿主翻译
+        baseURL: http://127.0.0.1:18088/openai/v1
+        apiKeyEnv: BIFROST_VIRTUAL_KEY
+        upstreamModel: agent2api/glm-5.3-flash
+    defaultModel: deepseek-flash
+```
+
+配好之后：
+
+- 面板顶部是模型选择条。点开先看到搜索框和按 provider 分组的模型列表，输入关键词按模型名、模型 id、provider 名过滤；
+- 有推理档位的模型行尾有一个「›」，点进去选 effort（档位来自 DSH 目录里该模型的 `reasoning.efforts`）。选完菜单收起，选择条上会显示 `effort: high` 这样的当前档位；
+- 选择（模型 + effort）一起落在 `$DSH_HOME/chat-in-dsh/model-state.json`，删掉这个文件就回到 `defaultModel`；`/webchat/settings` 是同一个选择的完整设置页；
+- 脚本里用 `GET /webchat/api/models` 看目录、当前模型与 `activeEffort`，`POST /webchat/api/models {"id":"...","effort":"high"}` 一起切。只传 `id` 时不带 effort，上一个档位不会跟着搬过去。
+
+两种协议都支持：`api: anthropic` 的目录项按原样直通（只把请求体里的模型名换成选中的），
+`api: openai` 的目录项由宿主把请求翻成 `chat.completions`、再把分块流翻回 Anthropic 事件
+（思考内容翻成 thinking 块），所以网页版界面不用改。Key 只从 DSH 凭据或 `apiKeyEnv` 指向的
+环境变量里取，浏览器始终不持有它。附件上传仍走官方 Files API，因此换到非官方模型时附件不可用。
+
+effort 的走法：`api: openai` 的目录项把请求体顶层的 `effort`（也认 `thinking.effort`）翻成
+`reasoning_effort`；走 DSH 目录的条目透传成 `prepareCall` 的 `reasoningEffort`。没选 effort 时
+请求体与 1.4.0 逐字节一致。
+
+### 验证证据
+
+`docs/evidence/` 下是最近一次真上游验证的原始输出：
+
+- [`live-e2e.json`](docs/evidence/live-e2e.json)：插件上游指向进程内的记录型反向代理，代理原样转发到本机
+  bifrost 网关。记录里能看到 `reasoning_effort: "high"` 确实发到了上游、不选 effort 时这个字段不出现、
+  切到另一家 provider 的模型后上游按新 model 作答。
+- [`profile-e2e.json`](docs/evidence/profile-e2e.json)：跑在真实 `dsh web` 实例上，目录来自 profile
+  （3 个 provider 分组），跨组切换、effort 落盘与带 effort 的真上游对话都在里面。
+- [`ui-e2e.json`](docs/evidence/ui-e2e.json)：真实 Chromium 点开两级菜单、按关键词过滤、选 effort，
+  再在面板里发一句话等真实回答；截图见 `settings.png`、`model-menu.png`、`panel-chat.png`。
+
 ## 把对话搬进来
 
 **从 DeepSeek 官网搬**

@@ -14,7 +14,12 @@
 | 路由 | `src/webview.js` | 静态产物、`/webchat/api/*` 自检与导入接口、Messages / Files 转发 |
 | 约定 | `src/protocol.js` | 端点根、令牌头、路径越界判断（纯函数，有测试） |
 | 导入 | `src/dsh-import.js` | 只读解析 DSH 会话日志 → chat-demo 格式；暂存与确认（纯函数，有测试） |
-| 界面 | `client.js` | 左侧面板两个槽位（`main` + `sidebar.panellist`）与会话右键菜单贡献（`contextMenus`） |
+| 模型目录 | `src/models.js` | 插件配置里的模型目录、当前选择与状态文件 + DSH 目录合并（`fromDshEntry`/`mergeDshCatalog`）；搜索过滤 `filterModels`、推理档位 `activeEffortOf`（纯逻辑，有测试） |
+| 模型搜索 | `src/model-search.js` | 关键字过滤的一套纯函数：有序子序列匹配、前缀优先排序、命中下标（给 `<mark>` 高亮）、分组标题命中整组保留。设置页按 ESM 加载同一份源码，面板菜单是 `client.js` 里的同源副本（有测试盯着两边一致） |
+| DSH 目录 | `src/dsh-models.js` | 经 `ctx.llm` 取 DSH 同一份目录（与 DSH 聊天框同源；无 llm 服务时回退插件目录） |
+| DSH 派发 | `src/dsh-dispatch.js` | 网页版请求 → DSH `prepareCall` + `stream`，块流翻回 Anthropic SSE（`provider/model` 选择） |
+| 协议桥 | `src/openai-bridge.js` | Anthropic 请求 → `chat.completions`，分块流翻回 Anthropic SSE（纯函数，有测试） |
+| 界面 | `client.js` | 左侧面板两个槽位（`main` + `sidebar.panellist`）、面板顶部模型菜单（`ModelBar`：第一级搜索框 + provider 分组列表，第二级 effort 档位）与会话右键菜单贡献（`contextMenus`） |
 | 前端 | `webview/dist` | 官方 chat-demo 构建产物，随仓库分发 |
 
 上游基准：`8ad7b56e196b87d8a3215dc09476d6d146ad3f0e`（chat-demo v0.1.3，MIT）。补丁在
@@ -29,7 +34,13 @@
 ## 命令
 
 ```bash
-node --test test/protocol.test.js test/dsh-import.test.js
+node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js \
+  test/models.test.js test/openai-bridge.test.js test/webview-models.test.js test/dsh-models.test.js \
+  test/model-search.test.js test/settings-search.test.js test/client-model-menu.test.js
+node test/live-e2e.mjs             # 真上游端到端：需要 BIFROST_VIRTUAL_KEY（做法见下），覆盖 effort 与模型切换
+node test/profile-e2e.mjs          # 真实 profile 验证：跑在运行中的 dsh web 上，需要 DSH_WEB_TOKEN，覆盖分组切换与 effort
+node test/ui-e2e.mjs               # 真实浏览器验证：CDP 点两级模型菜单（分组/搜索/effort）再在面板里对话，需要 DSH_WEB_TOKEN
+node test/settings-search-e2e.mjs  # 真实浏览器验证：CDP 在设置页搜索框里敲字，验过滤/高亮/空态/选中项，不需要令牌
 pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 webview/dist
 ```
 
@@ -38,7 +49,8 @@ pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 
 
 ## 硬约束
 
-1. **一个入口**：只有左侧面板。不要加模型路由、不要加 `conversation.view`、不要做会话双向同步——这是产品决定，不是待办。
+1. **一个入口**：只有左侧面板。不要在面板里加 DSH 的模型路由、不要加 `conversation.view`、不要做会话双向同步——这是产品决定，不是待办。
+   例外是「面板自己用哪个上游模型」：见下面「模型目录」一节，那是宿主转发层的选择，与 DSH 的模型路由无关。
 2. **网页版独立存储**：用上游自带的本地存储；只有「导入」这一次性复制会从 DSH 读数据。
 3. **不发明提示词**：浏览器构造请求体，宿主只转发。
 4. **密钥不出宿主**：浏览器不持有 API Key；`BOOTSTRAP` 注入的只是让上游放行的占位值。
@@ -46,7 +58,33 @@ pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 
 
 ## 验证
 
-- `GET /webchat/api/self-test`：入口页、静态资源、一次真实生成，三项全绿。
+- `GET /webchat/api/self-test`：入口页、静态资源、当前模型、一次真实生成，四项全绿（第三项 detail 里带选中模型）。
+- 模型目录：没配 `models` 时 `/webchat/models` 必须还是 `deepseek-flash` 单项，请求体原样转发（`test/webview-models.test.js` 里
+  有「默认目录不改写模型名」一条盯着）。配了目录后：`/webchat/settings` 能选、`/webchat/api/models` 能切、状态文件落在
+  `$DSH_HOME/chat-in-dsh/model-state.json`；`api: openai` 的目录项走 `src/openai-bridge.js`，思考内容要变成 thinking 块。
+- 真上游端到端：`node test/live-e2e.mjs --model agent2api/glm-5.3-flash --model2 runanywhere/glm-5.3-flash \
+  --base http://127.0.0.1:18088/openai/v1 --out docs/evidence/live-e2e.json`，
+  它会用 profile 里的 `BIFROST_VIRTUAL_KEY`（环境变量或 `~/.dsh/bifrost.env`）起一个临时端口，验证列表/切换/真实回答/自检/设置页，
+  并把插件上游指到一个进程内的记录型反向代理——代理原样转发到 `--base`，只额外记下请求体，所以
+  「`reasoning_effort` 真的发到了上游」「不选 effort 时没有这个字段」「切到另一家 provider 后上游按新 model 作答」
+  都是真网关给的证据。没有真 Key 时不要用打桩结果冒充验证。
+- 分组与 effort（真实 profile）：`node scripts/verify-profile.mjs --model glm-5.3-flash` 复制 `~/.dsh/profiles/web`
+  起一个隔离实例（3199），自动跑 profile-e2e 与 ui-e2e，证据写到 `docs/evidence/profile-e2e.json`、
+  `docs/evidence/ui-e2e.json`（截图 `settings.png`、`model-menu.png`、`panel-chat.png`）。
+  profile-e2e 里除了原有的目录/切换/对话/自检，还验：目录带 `provider`/`providerName` 分组字段（真 DSH 目录 ≥2 组）、
+  跨 provider 组切换后真上游仍作答、`POST /webchat/api/models {id,effort}` 的 `activeEffort` 与状态文件一致、
+  带 effort 的对话 HTTP 200、只传 `id` 时档位不残留。
+- 分级菜单（真实浏览器）：ui-e2e 用真实鼠标点开 `button[aria-label="网页版使用哪个模型"]`，检查菜单里出现
+  `dsh-models` 的真实分组名，输入 `glm` 后列表只剩命中的模型行，点行尾 `为 … 选择 effort`（按钮宽度是 100%，
+  要点右端）进档位列表，点 `high` 后由 `/webchat/api/models` 回读 `activeEffort`，再在面板 iframe 里发一句话等回答。
+- 搜索过滤：规则在 `src/model-search.js`（`test/model-search.test.js`）——名字优先于 provider、大小写不敏感的有序
+  子序列、前缀与紧凑命中排前，空查询原样返回。设置页 `/webchat/settings` 顶部搜索框与面板菜单用同一套规则：
+  即时过滤、命中处 `<mark>` 高亮、无命中显示「没有匹配的模型。」、目录为空显示「暂无可用模型。」；
+  过滤只切 `hidden`、不重建行，所以选中项（含被隐藏的当前模型）不会被弄丢，保存仍提交选中项。
+  面板菜单里标题（provider）命中时整组保留并高亮标题，否则只留命中的模型、空组标题消失（与 DSH 一致），
+  搜索框里 ↑/↓ 移高亮、回车选中、Esc 清空，全部在组件内完成，不发请求。
+  设置页的浏览器验证是 `test/settings-search-e2e.mjs`，菜单的渲染级验证是 `test/client-model-menu.test.js`
+  （最小 React 运行时把 `client.js` 真渲染出来，并和 `src/model-search.js` 逐条比对）。
 - 槽位：`main` / `sidebar.panellist` 有 `chat-demo`；会话菜单走 `contextMenus` 贡献，所以旧插槽 `sidebar.workspaces.session.menu.item` 应当是空的；`conversation.view` 里**不应**出现。
 - 菜单样式：会话右键菜单里的「导入到网页版」必须和置顶、重命名等原生条目等高同字号——新加菜单项一律用 `ctx.contextMenus.register`，不要往旧插槽塞自定义按钮。
 - 导入：右键任意会话 →「导入到网页版」→ `GET /webchat/api/import/pending` 返回该会话 → 网页版启动时写入并 `ack`。
